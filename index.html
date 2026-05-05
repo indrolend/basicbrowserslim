@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; connect-src 'self';
+             img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline';
+             object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="X-Frame-Options" content="DENY">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Homedev SPA</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="spa-root">
+    <div id="spa-hero-container"></div>
+    <canvas id="transition-canvas" width="320" height="320"
+      style="display:none;position:absolute;z-index:100;pointer-events:none;"></canvas>
+    <div id="spa-dots" role="tablist" aria-label="Item position"></div>
+    <div id="spa-item-nav">
+      <button type="button" id="spa-prev-btn" class="spa-nav-btn" aria-label="Previous item">&#8592; Prev</button>
+      <button type="button" id="spa-next-btn" class="spa-nav-btn" aria-label="Next item">Next &#8594;</button>
+    </div>
+  </div>
+  <div id="spa-overlay-root" role="dialog" aria-modal="true" aria-label="Overlay"></div>
+  <script src="js/spa/routes.js"></script>
+  <script src="js/spa/overlayManager.js"></script>
+  <script src="js/spa/apps/asymptoteApp.js"></script>
+  <script src="js/spa/views/gamesView.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
