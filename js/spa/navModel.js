@@ -27,6 +27,13 @@ export function getPrevTarget(si, ii, homeSectionLocked) {
   return { sectionIdx: prevSi, itemIdx: SPA_SECTIONS[prevSi].items.length - 1 };
 }
 
+// Convenience wrapper: returns next or prev target based on direction string.
+export function getTargetForDirection(direction, si, ii, homeSectionLocked) {
+  return direction === 'next'
+    ? getNextTarget(si, ii, homeSectionLocked)
+    : getPrevTarget(si, ii, homeSectionLocked);
+}
+
 // Returns an object whose getNavOptions() tracks chained desktop nav timing.
 export function createDesktopNavTracker() {
   let lastInputAt = 0;

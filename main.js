@@ -5,7 +5,7 @@ import { initSlingshot }                  from './js/spa/slingshotGesture.js';
 import { getSection, getItem, getClickAction,
          SLINGSHOT_MIN_RELEASE, REVEAL_HANDOFF_FADE_MS } from './js/spa/spaData.js';
 import { getSafeExternalUrl, waitRaf, waitMs }            from './js/spa/utils.js';
-import { getNextTarget, getPrevTarget,
+import { getNextTarget, getPrevTarget, getTargetForDirection,
          createDesktopNavTracker }                        from './js/spa/navModel.js';
 import { createNavRenderer }                              from './js/spa/renderNav.js';
 import { createHeroRenderer }                             from './js/spa/renderHero.js';
@@ -289,9 +289,7 @@ function onSlingshotTap() {
 
 function onSlingshotLock({ direction }) {
   if (isTransitioning && !isPulling) {
-    const t = direction === 'next'
-      ? getNextTarget(currentSectionIdx, currentItemIdx, homeSectionLocked)
-      : getPrevTarget(currentSectionIdx, currentItemIdx, homeSectionLocked);
+    const t = getTargetForDirection(direction, currentSectionIdx, currentItemIdx, homeSectionLocked);
     if (t) queuedTarget = { sectionIdx: t.sectionIdx, itemIdx: t.itemIdx };
     return false;
   }
@@ -303,9 +301,7 @@ function onSlingshotLock({ direction }) {
     if (!t) return false;
     targetSi = t.sectionIdx; targetIi = t.itemIdx;
   } else {
-    const t = direction === 'next'
-      ? getNextTarget(currentSectionIdx, currentItemIdx, homeSectionLocked)
-      : getPrevTarget(currentSectionIdx, currentItemIdx, homeSectionLocked);
+    const t = getTargetForDirection(direction, currentSectionIdx, currentItemIdx, homeSectionLocked);
     if (!t) return false;
     targetSi = t.sectionIdx; targetIi = t.itemIdx;
   }
@@ -439,11 +435,9 @@ function cleanupPull() {
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
   e.preventDefault();
-  const isNext = e.key === 'ArrowRight' || e.key === 'ArrowDown';
-  if (isAsymptoteGameActive && window.__SPA_GameNav) { void gameNavigate(isNext ? 'next' : 'prev'); return; }
-  const t = isNext
-    ? getNextTarget(currentSectionIdx, currentItemIdx, homeSectionLocked)
-    : getPrevTarget(currentSectionIdx, currentItemIdx, homeSectionLocked);
+  const direction = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev';
+  if (isAsymptoteGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
+  const t = getTargetForDirection(direction, currentSectionIdx, currentItemIdx, homeSectionLocked);
   if (t) goTo(t.sectionIdx, t.itemIdx, desktopNav.getNavOptions());
 });
 
@@ -454,12 +448,12 @@ navRenderer.setupItemNav(
   document.getElementById('spa-next-btn'),
   () => {
     if (isAsymptoteGameActive && window.__SPA_GameNav) { void gameNavigate('prev'); return; }
-    const t = getPrevTarget(currentSectionIdx, currentItemIdx, homeSectionLocked);
+    const t = getTargetForDirection('prev', currentSectionIdx, currentItemIdx, homeSectionLocked);
     if (t) goTo(t.sectionIdx, t.itemIdx, desktopNav.getNavOptions());
   },
   () => {
     if (isAsymptoteGameActive && window.__SPA_GameNav) { void gameNavigate('next'); return; }
-    const t = getNextTarget(currentSectionIdx, currentItemIdx, homeSectionLocked);
+    const t = getTargetForDirection('next', currentSectionIdx, currentItemIdx, homeSectionLocked);
     if (t) goTo(t.sectionIdx, t.itemIdx, desktopNav.getNavOptions());
   }
 );
