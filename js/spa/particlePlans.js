@@ -3,7 +3,7 @@
 // Each builder returns { particles, phases } for use with particleEngine.runParticleAnimation.
 // Plans are pure data: they do not touch the DOM or any canvas directly.
 
-import { PARTICLE_SIZE, EXPLODE_Z_RANGE, sampleParticles, sampleByCoverage, shuffle, parseRgba, projectParticle } from './particleSampler.js';
+import { PARTICLE_SIZE, EXPLODE_Z_RANGE, MIN_DEPTH_ALPHA, sampleParticles, sampleByCoverage, shuffle, parseRgba, projectParticle } from './particleSampler.js';
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvas
           const y = pt.y0 + (pt.ey - pt.y0) * p;
           const z = pt.z0 + (pt.ze - pt.z0) * p;
           const { px, py, scale } = projectParticle(x, y, z, cx, cy);
-          ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
+          ctx.globalAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
           ctx.fillStyle = `rgba(${pt.c0[0]},${pt.c0[1]},${pt.c0[2]},${pt.c0[3]})`;
           ctx.beginPath();
           ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
@@ -104,7 +104,7 @@ export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvas
           const y = pt.ey + (pt.y1 - pt.ey) * moveP;
           const z = pt.ze + (pt.z1 - pt.ze) * p;
           const { px, py, scale } = projectParticle(x, y, z, cx, cy);
-          ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
+          ctx.globalAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
           ctx.fillStyle = lerpColor(pt.c0, pt.c1, p);
           ctx.beginPath();
           ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
@@ -174,7 +174,7 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
           // z starts at ze and converges toward 0 as snap progresses
           const z = pt.ze * (1 - ease);
           const { px, py, scale } = projectParticle(x, y, z, cx, cy);
-          ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
+          ctx.globalAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
           ctx.fillStyle = `rgba(${pt.c0[0]},${pt.c0[1]},${pt.c0[2]},${pt.c0[3]})`;
           ctx.beginPath();
           ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
@@ -198,7 +198,7 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
         // z starts at ze and returns to 0 as reform completes
         const z = pt.ze * (1 - p);
         const { px, py, scale } = projectParticle(x, y, z, cx, cy);
-        ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
+        ctx.globalAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
         ctx.fillStyle = lerpColor(pt.c0, pt.c1, p);
         ctx.beginPath();
         ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);

@@ -3,9 +3,10 @@
 // Used by particlePlans.js (explode-reform, pull-reform) and
 // transitionKernel.js (slingshot pull-preview sampling).
 
-export const PARTICLE_SIZE   = 4;
-export const FOCAL_LENGTH    = 300;
-export const EXPLODE_Z_RANGE = 220;
+export const PARTICLE_SIZE    = 4;
+export const FOCAL_LENGTH     = 300;
+export const EXPLODE_Z_RANGE  = 220;
+export const MIN_DEPTH_ALPHA  = 0.15; // minimum alpha for depth-faded particles
 
 /** Reused scratch canvas; sequential sampleParticles calls are safe. */
 let _scratchCanvas = null;

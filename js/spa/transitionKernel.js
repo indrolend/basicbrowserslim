@@ -16,7 +16,7 @@ import { STAGE_PADDING_PX, REVEAL_HANDOFF_FADE_MS, SLINGSHOT_PARTICLE_SIZE, STRE
 import { waitRaf, waitMs } from './utils.js';
 import { runParticleAnimation } from './particleEngine.js';
 import { buildExplodeReformPlan, buildPullReformPlan } from './particlePlans.js';
-import { projectParticle } from './particleSampler.js';
+import { projectParticle, MIN_DEPTH_ALPHA } from './particleSampler.js';
 
 export function createTransitionKernel({ transitionCanvas, transitionCtx, heroContainer }) {
 
@@ -204,8 +204,11 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
       // Gentle z tilt based on fray gives a 3D peel-off sense during pull
       const z  = p.frayX * pullNormalized * 40;
       const { px: projX, py: projY, scale } = projectParticle(nx, ny, z, cw / 2, ch / 2);
-      drawnParticles.push({ x: nx, y: ny, color: p.color });
-      transitionCtx.globalAlpha = Math.min(1, phaseB * 2) * Math.max(0.15, Math.min(1, scale));
+      // Store projected coordinates so the reform animation starts from the visible position
+      drawnParticles.push({ x: projX, y: projY, color: p.color });
+      const phaseAlpha = Math.min(1, phaseB * 2);
+      const scaleAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
+      transitionCtx.globalAlpha = phaseAlpha * scaleAlpha;
       transitionCtx.fillStyle = p.color;
       transitionCtx.beginPath();
       transitionCtx.arc(projX, projY, (SLINGSHOT_PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
