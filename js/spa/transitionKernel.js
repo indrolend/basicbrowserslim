@@ -219,6 +219,27 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     return { particles: drawnParticles, canvasW: cw, canvasH: ch };
   }
 
+  function _buildAutoPullParticles(fromSurface, cw, ch, pullVector = { x: 1, y: 0 }) {
+    const base = _samplePullParticles(fromSurface, cw, ch);
+    if (!base.length) return null;
+
+    const len = Math.sqrt(pullVector.x * pullVector.x + pullVector.y * pullVector.y);
+    const pnx = len > 0 ? pullVector.x / len : 1;
+    const pny = len > 0 ? pullVector.y / len : 0;
+    const maxR = Math.min(cw, ch) * 0.5;
+    const cx0 = cw / 2;
+    const cy0 = ch / 2;
+    const stretch = STRETCH_MAX;
+
+    return base.map((p) => {
+      const radial = Math.min(1, Math.sqrt(p.cx * p.cx + p.cy * p.cy) / maxR);
+      const bias = TRAIL_BIAS + (1 - TRAIL_BIAS) * radial;
+      const mx = p.cx + (pnx * stretch * bias * 1.2);
+      const my = p.cy + (pny * stretch * bias * 1.2);
+      return { x: cx0 + mx, y: cy0 + my, color: p.color };
+    });
+  }
+
   // ─── Slingshot release transition ─────────────────────────────────────────
 
   /**
@@ -228,8 +249,10 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
    * @param {{ pulledParticles: Array|null, pulledCanvasW: number, pulledCanvasH: number,
    *           fromSurface: Object, toSurface: Object, onBeforeReveal?: Function }} opts
    */
-  async function runSlingshotRelease({ pulledParticles, pulledCanvasW, pulledCanvasH, fromSurface, toSurface, onBeforeReveal }) {
+  async function runSlingshotRelease({ pulledParticles, pulledCanvasW, pulledCanvasH, fromSurface, toSurface, onBeforeReveal, autoPullVector }) {
     alignCanvas(fromSurface, toSurface);
+    hideHero();
+    showCanvas();
     const cw = transitionCanvas.width, ch = transitionCanvas.height;
 
     // Remap pull particles into the (possibly resized) canvas coordinate space.
@@ -239,8 +262,12 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
       remapped = pulledParticles.map(p => ({ x: p.x + shiftX, y: p.y + shiftY, color: p.color }));
     }
 
-    const plan = remapped
-      ? buildPullReformPlan(remapped, toSurface, cw, ch, null)
+    const syntheticPulled = (!remapped && fromSurface)
+      ? _buildAutoPullParticles(fromSurface, cw, ch, autoPullVector || { x: 1, y: 0 })
+      : null;
+
+    const plan = (remapped || syntheticPulled)
+      ? buildPullReformPlan(remapped || syntheticPulled, toSurface, cw, ch, null)
       : null;
 
     const finalPlan = plan || buildExplodeReformPlan(fromSurface, toSurface, cw, ch, 'default');

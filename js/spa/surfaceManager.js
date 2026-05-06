@@ -65,6 +65,14 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
     const viewModule = window.__SPA_Views?.[section.id];
 
     if (phase === 'from') {
+      // GIF hero rendered by gifler — canvas holds the current frame once ready.
+      // If the canvas is not ready yet, fall back to the visible <img> so
+      // transitions still have a source surface instead of disappearing.
+      const liveGifCanvas = heroContainer.querySelector('canvas.spa-hero-canvas');
+      if (liveGifCanvas && liveGifCanvas._gifReady === true && liveGifCanvas.width > 0 && liveGifCanvas.height > 0) {
+        return { type: 'element', element: liveGifCanvas };
+      }
+
       // Live hero element in DOM
       const liveImg = heroContainer.querySelector('.spa-hero-image');
       if (liveImg) return { type: 'element', element: liveImg };
@@ -97,7 +105,21 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       if (probe) return { type: 'textElement', element: probe.element, cleanup: probe.cleanup };
     }
 
-    return { type: 'text', text: heroSpec.text || item.label };
+    // Build an offscreen probe that mirrors the exact DOM structure renderHeroDOM
+    // produces for text heroes. This makes the rasterized surface use the same CSS
+    // (font-size clamp, accent colour, letter-spacing) as the revealed hero, so the
+    // particles converge into text that matches what actually appears.
+    const probeWrap = document.createElement('div');
+    probeWrap.className = 'spa-hero spa-hero--text';
+    probeWrap.style.cssText =
+      `position:absolute;left:-9999px;top:0;` +
+      `width:${heroContainer.offsetWidth || 320}px;pointer-events:none;`;
+    const probeText = document.createElement('div');
+    probeText.className = 'spa-hero-text';
+    probeText.textContent = heroSpec.text || item.label;
+    probeWrap.appendChild(probeText);
+    document.body.appendChild(probeWrap);
+    return { type: 'textElement', element: probeWrap, cleanup: () => probeWrap.remove() };
   }
 
   async function buildSurface(si, ii, phase) {

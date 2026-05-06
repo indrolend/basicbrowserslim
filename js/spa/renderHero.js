@@ -7,9 +7,31 @@
 import { getSection, getItem, getHeroSpec, getClickAction } from './spaData.js';
 import { addActivationHandler } from './utils.js';
 
+let _gifRestartSeq = 0;
+
 export function createHeroRenderer({ heroContainer, onAction }) {
 
+  function _isGifSrc(src) {
+    return /\.gif(?:[?#]|$)/i.test(src || '');
+  }
+
+  function _buildRestartGifSrc(src) {
+    const raw = String(src || '');
+    if (!raw) return raw;
+    const hashIndex = raw.indexOf('#');
+    const base = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+    const hash = hashIndex >= 0 ? raw.slice(hashIndex) : '';
+    const sep = base.includes('?') ? '&' : '?';
+    _gifRestartSeq += 1;
+    return `${base}${sep}spa_gif_restart=${Date.now()}_${_gifRestartSeq}${hash}`;
+  }
+
   function renderHeroDOM(si, ii) {
+    // Stop any active gifler player before wiping the container
+    const prevCanvas = heroContainer.querySelector('canvas.spa-hero-canvas');
+    if (prevCanvas && prevCanvas._giflerPlayer) {
+      try { prevCanvas._giflerPlayer.stop(); } catch (_) {}
+    }
     heroContainer.innerHTML = '';
 
     const section = getSection(si);
@@ -39,14 +61,55 @@ export function createHeroRenderer({ heroContainer, onAction }) {
     }
 
     if (heroSpec.kind === 'image') {
-      const img = document.createElement('img');
-      img.className = 'spa-hero-image';
-      img.src       = heroSpec.src;
-      img.width     = 320;
-      img.height    = 320;
-      img.style.objectFit = 'contain';
-      img.setAttribute('draggable', 'false');
-      wrapper.appendChild(img);
+      if (_isGifSrc(heroSpec.src) && window.gifler) {
+        const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
+        // Display the GIF via <img> so it shows instantly after transitions
+        // with no decode delay. A hidden gifler canvas runs in parallel,
+        // driven by the same src, so it stays close to the same frame as the
+        // visible image. The transition engine captures the gifler canvas for
+        // frame-accurate FROM surfaces.
+        const img = document.createElement('img');
+        img.className = 'spa-hero-image';
+        img.src       = gifRenderSrc;
+        img.width     = 320;
+        img.height    = 320;
+        img.style.objectFit = 'contain';
+        img.setAttribute('draggable', 'false');
+        wrapper.appendChild(img);
+
+        // Hidden canvas driven by gifler to capture the current displayed frame.
+        // gifler.animate() auto-sizes the canvas to the GIF's logical dimensions and
+        // composites each sub-rect update tile at the correct (frame.x, frame.y) offset,
+        // producing an accurate full-frame buffer. The transition engine reads this canvas
+        // to build a frame-accurate FROM surface for the particle transition.
+        const gifCanvas = document.createElement('canvas');
+        gifCanvas.className = 'spa-hero-canvas';
+        gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+        gifCanvas._gifReady = false;
+        wrapper.appendChild(gifCanvas);
+        window.gifler(gifRenderSrc).get(function(animator) {
+          // Guard: renderHeroDOM may have fired again before XHR resolved.
+          if (!gifCanvas.isConnected) return;
+          animator.onDrawFrame = function(ctx, frame) {
+            if (!frame?.buffer) return;
+            ctx.drawImage(frame.buffer, frame.x, frame.y);
+            gifCanvas._gifReady = true;
+          };
+          // animateInCanvas() resizes the canvas to the GIF's logical dimensions,
+          // then starts the animation loop.
+          animator.animateInCanvas(gifCanvas);
+          gifCanvas._giflerPlayer = animator;
+        });
+      } else {
+        const img = document.createElement('img');
+        img.className = 'spa-hero-image';
+        img.src       = heroSpec.src;
+        img.width     = 320;
+        img.height    = 320;
+        img.style.objectFit = 'contain';
+        img.setAttribute('draggable', 'false');
+        wrapper.appendChild(img);
+      }
     } else {
       wrapper.classList.add('spa-hero--text');
       const textEl = document.createElement('div');
@@ -54,6 +117,7 @@ export function createHeroRenderer({ heroContainer, onAction }) {
       textEl.textContent = heroSpec.text || item.label;
       wrapper.appendChild(textEl);
     }
+
 
     heroContainer.appendChild(wrapper);
   }

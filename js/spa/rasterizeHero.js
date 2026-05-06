@@ -146,11 +146,20 @@ function drawTextElementViaSvg(ctx, canvas, textEl, onDone, onError) {
   clone.style.width    = `${width}px`;
   // Probe elements use off-screen absolute positioning to hide them from view.
   // Reset to relative so SVG foreignObject renders at the origin.
-  clone.style.position = 'relative';
-  clone.style.left     = 'auto';
-  clone.style.top      = 'auto';
-  clone.style.right    = 'auto';
-  clone.style.bottom   = 'auto';
+  clone.style.position   = 'relative';
+  clone.style.left       = 'auto';
+  clone.style.top        = 'auto';
+  clone.style.right      = 'auto';
+  clone.style.bottom     = 'auto';
+  // inlineComputedStyles copies visibility/opacity from the source element, which
+  // may be a probe with visibility:hidden. Reset them so SVG foreignObject renders
+  // the text visibly regardless of how the source was hidden.
+  clone.style.visibility = 'visible';
+  clone.style.opacity    = '1';
+  for (const child of clone.querySelectorAll('*')) {
+    child.style.visibility = 'visible';
+    child.style.opacity    = '1';
+  }
 
   const serializer = new window.XMLSerializer();
   const escaped = serializer.serializeToString(clone).replace(/&nbsp;/g, '&#160;');
@@ -336,18 +345,28 @@ export function rasterizeHero(hero) {
         reject(new Error('Invalid image element'));
         return;
       }
-      const src = imgEl.currentSrc || imgEl.src || '';
-      const isGifSource = /\.gif(?:[?#]|$)/i.test(src);
-      spaDebug(
-        `[rasterizeHero] branch=element live=true gif=${isGifSource} ` +
-        `complete=${imgEl.complete} natural=${imgEl.naturalWidth}x${imgEl.naturalHeight}`
-      );
-      if (!imgEl.complete || !imgEl.naturalWidth || !imgEl.naturalHeight) {
-        reject(new Error('Image element not ready'));
-        return;
+      function captureImgFrame() {
+        const src = imgEl.currentSrc || imgEl.src || '';
+        const isGifSource = /\.gif(?:[?#]|$)/i.test(src);
+        spaDebug(
+          `[rasterizeHero] branch=element live=true gif=${isGifSource} ` +
+          `complete=${imgEl.complete} natural=${imgEl.naturalWidth}x${imgEl.naturalHeight}`
+        );
+        // Use skipCrop:true for GIFs so the full 320×320 frame is preserved;
+        // cropping per-frame shifts the bounding box as transparent regions change.
+        drawCenteredImage(imgEl, imgEl.width || imgEl.naturalWidth, imgEl.height || imgEl.naturalHeight, {
+          debugLabel: isGifSource ? 'element(gif-frame)' : 'element(img)',
+          skipCrop: isGifSource,
+        });
+        spaDebug(`[rasterizeHero] element capture drawn src=${src}`);
       }
-      drawCenteredImage(imgEl);
-      spaDebug(`[rasterizeHero] element capture drawn src=${src}`);
+      if (!imgEl.complete || !imgEl.naturalWidth || !imgEl.naturalHeight) {
+        // Image not yet loaded (e.g. offscreen probe for destination hero).
+        imgEl.addEventListener('load',  captureImgFrame,                                { once: true });
+        imgEl.addEventListener('error', () => reject(new Error('Image element failed to load')), { once: true });
+      } else {
+        captureImgFrame();
+      }
     } else if (hero.type === 'textElement') {
       const textEl = hero.element;
       if (!(textEl instanceof window.HTMLElement)) {

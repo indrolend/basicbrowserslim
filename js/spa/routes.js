@@ -13,7 +13,14 @@
       'music/bandcamp':   { clickAction: 'https://indrolend.bandcamp.com' },
       'music/soundcloud': { clickAction: 'overlay:soundcloud' },
       // Games
-      'games/asymptote':  { clickAction: 'overlay:asymptote' }
+      'games/asymptote':  { clickAction: 'overlay:asymptote' },
+      // Transition Lab
+      'transitionLab/labTextStart':      { clickAction: null },
+      'transitionLab/labImageNormal':    { clickAction: null },
+      'transitionLab/labGifFull':        { clickAction: null },
+      'transitionLab/labImageOffset':    { clickAction: null },
+      'transitionLab/labGifTransparent': { clickAction: null },
+      'transitionLab/labTextEnd':        { clickAction: null }
     }
   };
 })();
