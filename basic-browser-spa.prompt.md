@@ -14,17 +14,25 @@ main.js                         ← entry point (type="module")
 style.css
 js/
   spa/
-    rasterizeHero.js            ← ES module export
-    particleTransitionEngine.js ← ES module export
-    slingshotGesture.js         ← ES module export
+    spaData.js                  ← ES module
+    utils.js                    ← ES module
+    navModel.js                 ← ES module
+    renderNav.js                ← ES module
+    renderHero.js               ← ES module
+    rasterizeHero.js            ← ES module
+    surfaceManager.js           ← ES module
+    particleSampler.js          ← ES module
+    particlePlans.js            ← ES module
+    particleEngine.js           ← ES module
+    transitionKernel.js         ← ES module
+    slingshotGesture.js         ← ES module
+    appKernel.js                ← ES module
     routes.js                   ← classic <script> global
     overlayManager.js           ← classic <script> global
     apps/
       asymptoteApp.js           ← classic <script> global
     views/
       gamesView.js              ← classic <script> global
-    vendor/
-      gifler.min.js             ← vendor (not authored)
 gifs/
   Tiktoklogospin.gif
   Instagramlogospin.gif
@@ -242,6 +250,90 @@ Section nav: `justify-content: flex-start`, smaller gaps.
 
 ---
 
+## js/spa/spaData.js  — ES module
+
+Exports SPA section/item data, shared constants, and pure data accessors.
+
+### SPA_SECTIONS
+
+```js
+export const SPA_SECTIONS = [
+  {
+    id: 'home', label: 'Home',
+    items: [
+      { id: 'orb', label: 'Indrolend', hero: { kind: 'text', text: 'INDROLEND' }, swipe: true }
+    ]
+  },
+  {
+    id: 'social', label: 'Social',
+    items: [
+      { id: 'tiktok',    label: 'TikTok',    hero: { kind: 'image', src: 'gifs/Tiktoklogospin.gif' } },
+      { id: 'instagram', label: 'Instagram', hero: { kind: 'image', src: 'gifs/Instagramlogospin.gif' } },
+      { id: 'youtube',   label: 'YouTube',   hero: { kind: 'image', src: 'gifs/Youtubelogospin.gif' } }
+    ]
+  },
+  {
+    id: 'music', label: 'Music',
+    items: [
+      { id: 'spotify',    label: 'Spotify',     hero: { kind: 'image', src: 'gifs/Spotifylogospin.gif' } },
+      { id: 'appleMusic', label: 'Apple Music', hero: { kind: 'image', src: 'gifs/Applemusiclogospin.gif' } },
+      { id: 'bandcamp',   label: 'Bandcamp',    hero: { kind: 'image', src: 'gifs/bandcamplogospin.gif' } },
+      { id: 'soundcloud', label: 'SoundCloud',  hero: { kind: 'image', src: 'gifs/soundcloudlogospin.gif' } }
+    ]
+  },
+  {
+    id: 'games', label: 'Games',
+    items: [
+      { id: 'asymptote', label: 'Asymptote Engine', hero: { kind: 'text', text: 'Asymptote Engine' } }
+    ]
+  }
+];
+```
+
+### Constants
+
+```js
+export const STAGE_PADDING_PX        = 72;
+export const SLINGSHOT_MIN_RELEASE   = 0.15;
+export const REVEAL_HANDOFF_FADE_MS  = 70;
+export const DESKTOP_CHAIN_WINDOW_MS = 260;
+export const STRETCH_MAX             = 55;
+export const TRAIL_BIAS              = 0.55;
+export const SLINGSHOT_PARTICLE_SIZE = 4;
+```
+
+### Pure data accessors
+
+```js
+export function getSection(si)            // SPA_SECTIONS[si] ?? null
+export function getItem(si, ii)           // SPA_SECTIONS[si]?.items[ii] ?? null
+export function getHeroSpec(si, ii)       // item?.hero ?? { kind: 'text', text: '' }
+export function getHeroSurfaceKey(si, ii) // `${si}:${ii}`
+export function isGifHero(si, ii)         // kind==='image' && /\.gif(?:[?#]|$)/i.test(src)
+export function getClickAction(si, ii)    // window.__INDROLEND_ROUTES__?.items?.[`${section.id}/${item.id}`]?.clickAction ?? null
+```
+
+---
+
+## js/spa/utils.js  — ES module
+
+```js
+export function addActivationHandler(element, handler)
+export function waitRaf()
+export function waitMs(ms)
+export function getSafeExternalUrl(href)
+```
+
+`addActivationHandler`: fires `handler` on `touchend` (calls `e.preventDefault()`) and `onclick` (mouse/a11y fallback). Prevents double-fire on touch via a 600 ms guard flag.
+
+`waitRaf()`: `Promise<void>` that resolves on the next `requestAnimationFrame`.
+
+`waitMs(ms)`: `Promise<void>` that resolves after `ms` milliseconds via `setTimeout`.
+
+`getSafeExternalUrl(href)`: `new URL(href, window.location.origin)`, returns `href` only for `https:` protocol. Any other protocol or parse failure → `null`.
+
+---
+
 ## js/spa/rasterizeHero.js  — ES module
 
 **Export:** `export function rasterizeHero(hero)` → `Promise<Surface>`
@@ -264,7 +356,7 @@ Section nav: `justify-content: flex-start`, smaller gaps.
 1. Clone element, call `inlineComputedStyles(source, clone)` (recursive `getComputedStyle` copy).
 2. Reset clone positioning: `margin:0; position:relative; left:auto; top:auto`.
 3. Serialize with `XMLSerializer`, replace `&nbsp;` → `&#160;`.
-4. Wrap in `<svg><foreignObject><div xmlns="xhtml">…</div></foreignObject></svg>`.
+4. Wrap in `<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div xmlns="http://www.w3.org/1999/xhtml">…</div></foreignObject></svg>`.
 5. Set as `img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)`.
 6. On `img.onload`: draw centered, then `compositeCanvasChildren` with `destination-over` to composite live canvases behind the text.
 
@@ -279,57 +371,86 @@ Scan ImageData, find opaque bbox (alpha > 32), add padding, return cropped canva
 
 ---
 
-## js/spa/particleTransitionEngine.js  — ES module
+## js/spa/particleSampler.js  — ES module
+
+Shared particle sampling helpers used by `particlePlans.js` and `transitionKernel.js`.
 
 **Exports:**
-- `transition(fromCanvas, toCanvas, options, onComplete)`
-- `transitionFromPull(pulledParticles, toRegion, ctx, options, onComplete)`
 
-**Constants:** `PARTICLE_SIZE = 4`
+```js
+export const PARTICLE_SIZE = 4;
+export function sampleParticles(region, canvasWidth, canvasHeight)
+export function sampleByCoverage(list, count)
+export function shuffle(list)
+export function parseRgba(color)
+```
 
-### Surface shape (region)
+`sampleParticles(region, canvasWidth, canvasHeight)`:
+- Reuses a single module-level scratch canvas (lazily created).
+- Draws `region.canvas` centered on the scratch canvas.
+- Reads ImageData; collects `{ x, y, color: 'rgba(r,g,b,a)' }` for every `PARTICLE_SIZE` grid cell with alpha > 32.
+- Returns array.
 
-`{ canvas: HTMLCanvasElement, width: number, height: number }` (plus `offsetX/offsetY` from rasterizeHero, ignored by engine).
+`sampleByCoverage(list, count)`: evenly spaced indices, returns exactly `count` entries.
 
-### `sampleParticles(region, canvasWidth, canvasHeight)`
+`shuffle(arr)`: Fisher-Yates, returns a new array.
 
-Draw region centered on a scratch canvas (reused across calls), read ImageData, collect `{ x, y, color: 'rgba(r,g,b,a)' }` for every `PARTICLE_SIZE` grid cell with alpha > 32.
+`parseRgba(color)`: parses `rgba(r,g,b,a)` → `[r, g, b, a]`.
 
-### Helpers
+---
 
-- `shuffle(arr)` — Fisher-Yates in-place copy.
-- `parseRgba(color)` → `[r, g, b, a]`.
-- `lerpColor(from, to, t)` → interpolated `rgba(...)` string.
-- `easeOutBack(t)` — `const s = 1.1; const u = t-1; return 1 + (s+1)*u*u*u + s*u*u`.
-- `sampleByCoverage(list, count)` — evenly spaced indices into list.
+## js/spa/particlePlans.js  — ES module
 
-### `transition` — explode → reform
+Imports from `particleSampler.js`. Builds particle plans for use with `particleEngine.runParticleAnimation`.
+
+**Exports:**
+- `buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvasHeight, timingProfile)`
+- `buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canvasHeight, fromParticlesBase)`
+
+A **plan** is `{ particles: Array, phases: Array<{ duration: ms, tick(elapsed, particles, ctx) }> }`.
+
+### `buildExplodeReformPlan`
 
 ```
-PARTICLE_COUNT = floor((max(fromW, toW) * max(fromH, toH)) / (PARTICLE_SIZE²))
-timingProfile: 'default' | 'chained' | 'releaseLike'
-EXPLODE_DURATION: chained=80ms, default=120ms
+timingProfile: 'default' | 'chained'
+EXPLODE_DURATION: chained=80ms,  default=120ms
 REFORM_DURATION:  chained=160ms, default=230ms
-TOTAL = EXPLODE + REFORM
-EXPLODE_RADIUS = min(w,h) * (chained ? 0.34 : 0.4)
+EXPLODE_RADIUS = min(canvasWidth, canvasHeight) * (chained ? 0.34 : 0.4)
+PARTICLE_COUNT = floor((max(fromW, toW) * max(fromH, toH)) / PARTICLE_SIZE²)
 ```
 
-Phase 1 (t < EXPLODE_DURATION): particles move from `(x0,y0)` → `(ex,ey)` where ex/ey = start + random angle * radius.
-Phase 2 (t < TOTAL): particles move from `(ex,ey)` → `(x1,y1)` with `easeOutBack`, color lerped from c0→c1.
+Each particle: `{ x0, y0, c0, x1, y1, c1, ex, ey }`.
+- `ex/ey` = start + random angle * radius (between 30%–100% of EXPLODE_RADIUS).
+- Phase 1 (EXPLODE_DURATION): linear `x0→ex`, `y0→ey`, constant `c0` color.
+- Phase 2 (REFORM_DURATION): `easeOutBack` `ex→x1`, `ey→y1`, color lerped `c0→c1`.
 
-If canvas is disconnected mid-animation, call `safeComplete()` immediately.
+`easeOutBack(t)`: `const s = 1.1; const u = t-1; return 1 + (s+1)*u*u*u + s*u*u`.
 
-### `transitionFromPull` — reform only
+### `buildPullReformPlan`
 
 ```
-SNAP_DURATION  =  80ms   (pull positions → rest positions, ease-out-quad)
-REFORM_DURATION = 270ms   (rest → target, easeOutBack, color lerp)
+SNAP_DURATION   =  80ms  (pull positions → rest, ease-out-quad)
+REFORM_DURATION = 270ms  (rest → target, easeOutBack, color lerp)
 ```
 
-Input: `pulledParticles` (last pull frame), `toRegion`, `ctx`, `options.fromParticlesBase` (rest positions).
 N = max(pulledParticles.length, rawToParticles.length).
-Phase 1 present only when `fromParticlesBase` provided and non-empty.
+Snap phase only present when `fromParticlesBase` is provided and non-empty.
 Phase 2: `pt.xm → pt.x1` via `easeOutBack`.
+Returns `null` if `pulledParticles` is empty/null or `toRegion` yields no particles.
+
+---
+
+## js/spa/particleEngine.js  — ES module
+
+**Export:** `export function runParticleAnimation(ctx, plan, onComplete)`
+
+Runs a plan built by `particlePlans.js` against a 2D canvas context.
+
+- Each phase's `tick(elapsedSincePhaseStart, particles, ctx)` draws one frame.
+- Engine calls `ctx.clearRect` before each tick.
+- Calls `onComplete` when total duration is exhausted or if `ctx.canvas.isConnected` is false.
+- Uses `requestAnimationFrame` loop; first frame sets `startTime`.
+- If `particles` is empty or `phases` is empty → call `onComplete` immediately.
 
 ---
 
@@ -368,339 +489,354 @@ Remove `pointerdown` listener, call `finalize(null, true)` if not idle, remove w
 
 ---
 
-## main.js  — entry point (type="module")
+## js/spa/navModel.js  — ES module
 
-Imports at bottom of file (after all function declarations):
-```js
-import { rasterizeHero } from './js/spa/rasterizeHero.js';
-import { transition, transitionFromPull } from './js/spa/particleTransitionEngine.js';
-import { initSlingshot } from './js/spa/slingshotGesture.js';
-```
+Navigation target computation and desktop timing tracker.
 
-### SPA_SECTIONS (data)
+**Exports:**
 
 ```js
-const SPA_SECTIONS = [
-  { id: 'home',   label: 'Home',
-    items: [{ id: 'swipe', label: 'Swipe', hero: { kind: 'text', text: 'swipe' } }]
-  },
-  { id: 'social', label: 'Social',
-    items: [
-      { id: 'tiktok',    label: 'TikTok',     hero: { kind: 'image', src: 'gifs/Tiktoklogospin.gif' } },
-      { id: 'instagram', label: 'Instagram',  hero: { kind: 'image', src: 'gifs/Instagramlogospin.gif' } },
-      { id: 'youtube',   label: 'YouTube',    hero: { kind: 'image', src: 'gifs/Youtubelogospin.gif' } }
-    ]
-  },
-  { id: 'music',  label: 'Music',
-    items: [
-      { id: 'spotify',    label: 'Spotify',     hero: { kind: 'image', src: 'gifs/Spotifylogospin.gif' } },
-      { id: 'appleMusic', label: 'Apple Music', hero: { kind: 'image', src: 'gifs/Applemusiclogospin.gif' } },
-      { id: 'bandcamp',   label: 'Bandcamp',    hero: { kind: 'image', src: 'gifs/bandcamplogospin.gif' } },
-      { id: 'soundcloud', label: 'SoundCloud',  hero: { kind: 'image', src: 'gifs/soundcloudlogospin.gif' } }
-    ]
-  },
-  { id: 'games',  label: 'Games',
-    items: [{ id: 'asymptote', label: 'Asymptote Engine', hero: { kind: 'text', text: 'Asymptote Engine' } }]
-  }
-  // About section temporarily hidden
-];
+export function getAvailableSections(homeSectionLocked)
+export function getNextTarget(si, ii, homeSectionLocked)
+export function getPrevTarget(si, ii, homeSectionLocked)
+export function getTargetForDirection(direction, si, ii, homeSectionLocked)
+export function createDesktopNavTracker()
 ```
 
-### Core state variables
+`getNextTarget`: next item in same section if available, else next section (wrapping), `itemIdx: 0`. Home section (index 0) is excluded when `homeSectionLocked`.
+
+`getPrevTarget`: previous item in same section if available, else previous section last item. Home excluded when locked.
+
+`getTargetForDirection(direction, ...)`: calls `getNextTarget` for `'next'`, `getPrevTarget` for `'prev'`.
+
+`createDesktopNavTracker()` → `{ getNavOptions() }`: `getNavOptions()` compares `performance.now()` against `lastInputAt` using `DESKTOP_CHAIN_WINDOW_MS`. Returns `{ timingProfile: 'chained' }` if within window, else `{ timingProfile: 'default' }`. Updates `lastInputAt` on every call.
+
+---
+
+## js/spa/renderNav.js  — ES module
+
+**Export:** `createNavRenderer({ dotsContainer, onNav })` → `{ updateSectionNav, updateItemDots, setupItemNav }`
+
+`updateSectionNav(si, homeSectionLocked)`:
+- Creates `<nav id="spa-section-nav" aria-label="Sections">` if not present; inserts as `document.body.firstChild`.
+- Clears and re-renders one `.spa-nav-btn` button per visible section (home excluded when locked).
+- Active section gets `fontWeight: bold`, `background: '#333'`, `aria-current: 'page'`.
+- Click/touch via `addActivationHandler` → `onNav(sectionIdx, 0)`.
+
+`updateItemDots(si, ii)`:
+- Clears `dotsContainer`. If section has ≤ 1 item: nothing rendered.
+- Otherwise renders `.spa-dot` buttons (role=tab, aria-label=item.label, `aria-selected` on active).
+- Click/touch → `onNav(si, idx)`.
+
+`setupItemNav(prevBtn, nextBtn, onPrev, onNext)`:
+- Attaches `addActivationHandler` to prevBtn and nextBtn.
+
+---
+
+## js/spa/renderHero.js  — ES module
+
+**Export:** `createHeroRenderer({ heroContainer, onAction })` → `{ renderHeroDOM }`
+
+`renderHeroDOM(si, ii)`:
+1. Clears `heroContainer.innerHTML`.
+2. Looks up section/item. If not found → return.
+3. Delegates to `window.__SPA_Views?.[section.id]?.mount?.(item.id, heroContainer)` if the view module exists; returns immediately.
+4. Creates `div.spa-hero` with `draggable="false"` and dragstart prevention.
+5. If `clickAction` exists: add class `spa-hero--linkable`, `role="link"`, `tabindex="0"`, keydown handler (Enter/Space), and `addActivationHandler` → `onAction(clickAction)`.
+6. If `heroSpec.kind === 'image'`: create `<img class="spa-hero-image">` with `src`, `width=320`, `height=320`, `objectFit: contain`, `draggable: false`. All image formats (including GIFs) are rendered as native `<img>` elements.
+7. Else (text): add class `spa-hero--text`, create `div.spa-hero-text` with `textContent = heroSpec.text || item.label`.
+8. Append hero div to `heroContainer`.
+
+---
+
+## js/spa/surfaceManager.js  — ES module
+
+**Export:** `createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning })` → `{ startTracking, stopTracking, buildSurface }`
+
+Owns the live hero surface cache (one surface at a time).
+
+`startTracking(si, ii)`:
+- Stop any existing tracking RAF.
+- If `isGifHero(si, ii)` or the section's view module has `buildHeroProbe`: clear cache, skip tracking.
+- Otherwise: launch RAF loop that calls `buildSurface(si, ii, 'from')` each frame while `!getIsTransitioning()`, stores result as `_currentSurface`.
+
+`stopTracking()`: cancel RAF, null out tracking key.
+
+`buildSurface(si, ii, phase)` → `Promise<surface | null>`:
+- For `phase === 'from'` with matching key and non-GIF: return cached `_currentSurface` immediately.
+- Calls `_buildRenderInput(si, ii, phase)` then `rasterizeHero(input)`. Calls `input.cleanup()` if provided.
+
+`_buildRenderInput` for `phase='from'`:
+1. Live `.spa-hero-image` img → `{ type: 'element', element: img }`.
+2. Live `.spa-hero` element → `{ type: 'textElement', element }`.
+3. Visible `.spa-overlay--inline` inside `#spa-overlay-root` → `{ type: 'textElement', element }`.
+4. View `buildHeroProbe` result → `{ type: 'textElement', element, cleanup }`.
+5. Image hero fallback → `{ type: 'gif', src }`.
+6. Text hero fallback → `{ type: 'text', text }`.
+
+`_buildRenderInput` for `phase='to'`:
+1. Image hero → `{ type: 'gif', src }`.
+2. View `buildHeroProbe` result → `{ type: 'textElement', element, cleanup }`.
+3. Text hero fallback → `{ type: 'text', text }`.
+
+---
+
+## js/spa/transitionKernel.js  — ES module
+
+**Export:** `createTransitionKernel({ transitionCanvas, transitionCtx, heroContainer })` → `{ alignCanvas, showCanvas, hideCanvas, hideHero, runTransition, resetPullPreview, renderPullPreview, runSlingshotRelease }`
+
+Owns canvas alignment, DOM show/hide, particle animation, pull-preview, and reveal handoff.
+
+### Canvas helpers
+
+`alignCanvas(fromSurface, toSurface)`:
+- `stageW = max(from?.width ?? 0, to?.width ?? 0) + STAGE_PADDING_PX * 2`, minimum 64.
+- `stageH` similarly.
+- Position canvas centered on `heroContainer` relative to `#spa-root` via `getBoundingClientRect()`. Set `style.left`, `style.top` (canvas uses CSS `transform: translate(-50%, -50%)`).
+
+`showCanvas()`: `display: block; opacity: 1; transition: ''`.
+`hideCanvas()`: `display: none; opacity: 1; transition: ''`.
+`hideHero()`: set `heroContainer.firstElementChild` to `visibility: hidden; opacity: 0; transition: ''`.
+
+### Reveal handoff (`_revealHandoff(onBeforeReveal)`)
+
+1. `await onBeforeReveal()` if provided.
+2. Set hero `visibility: visible; transition: opacity ${REVEAL_HANDOFF_FADE_MS}ms ease-out`.
+3. Set canvas `transition: opacity ${REVEAL_HANDOFF_FADE_MS}ms ease-in`.
+4. `await waitRaf()`, then set hero `opacity: 1`, canvas `opacity: 0`.
+5. `await waitMs(REVEAL_HANDOFF_FADE_MS)`.
+6. `hideCanvas()`, clear hero transition.
+
+### `runTransition(fromSurface, toSurface, opts = {})`
+
+If either surface is null/missing: skip animation, call `opts.onBeforeReveal()` and return.
+1. `alignCanvas` → `hideHero` → `showCanvas`.
+2. `buildExplodeReformPlan(fromSurface, toSurface, cw, ch, opts.timingProfile || 'default')`.
+3. `await new Promise(resolve => runParticleAnimation(transitionCtx, plan, resolve))`.
+4. In `finally`: `await _revealHandoff(opts.onBeforeReveal)`.
+
+### Pull-preview
+
+`resetPullPreview()`: clears `_pullParticlesBase`.
+
+`renderPullPreview(pullVector, pullNormalized, pullFromSurface)` → `{ particles, canvasW, canvasH } | null`:
+- If `pullFromSurface` null: return null.
+- Phase A (< 0.25): draw surface centered, clear base, return null.
+- Phase B/C (≥ 0.25): sample base once if not yet sampled.
+  - `phaseB = min(1, (pullNormalized - 0.25) / 0.4)`
+  - If `phaseB < 1`: draw surface with `globalAlpha = (1 - phaseB)`.
+  - Draw particles with `globalAlpha = min(1, phaseB * 2)`.
+  - Per-particle displacement: `proj = (p.cx * pnx + p.cy * pny) / (maxR * 0.5)`. `asymScale = proj >= 0 ? 0.4 : 1.2`. `stretch = proj * pullNormalized * STRETCH_MAX * asymScale`. Trail direction: `(-pnx) * TRAIL_BIAS + p.frayX * (1 - TRAIL_BIAS)`.
+  - Returns `{ particles: drawnParticles, canvasW: cw, canvasH: ch }`.
+
+Internal `_samplePullParticles(surface, cw, ch)` → array of `{ x, y, cx, cy, color, frayX, frayY }` (cx/cy = offset from canvas center; frayX/Y = stable per-particle random direction in ±1 range).
+
+### `runSlingshotRelease({ pulledParticles, pulledCanvasW, pulledCanvasH, fromSurface, toSurface, onBeforeReveal })`
+
+1. `alignCanvas(fromSurface, toSurface)`.
+2. Remap pulled particles by `shiftX = (cw - pulledCanvasW) / 2`, `shiftY = (ch - pulledCanvasH) / 2`.
+3. `buildPullReformPlan(remapped, toSurface, cw, ch, null)` → if null (no particles), fall back to `buildExplodeReformPlan(fromSurface, toSurface, cw, ch, 'default')`.
+4. `await new Promise(resolve => runParticleAnimation(transitionCtx, plan, resolve))`.
+5. `await _revealHandoff(onBeforeReveal)`.
+
+---
+
+## js/spa/appKernel.js  — ES module
+
+**Export:** `createAppKernel({ surfaceManager, transitionKernel, heroRenderer, navRenderer, rasterizeHero, heroContainer, desktopNav })` → kernel object
+
+Owns all application state, navigation lifecycle, and slingshot callbacks.
+
+### State
 
 ```js
-let currentSectionIdx = 0, currentItemIdx = 0;
-let isTransitioning = false, isPulling = false;
-let queuedTarget = null, activeTarget = null;
-let homeSectionLocked = false;
-
-// Hero surface caching (background RAF capture for text heroes)
-let currentHeroSurface = null;
-let currentHeroSurfaceKey = null;
-let currentHeroSurfaceFrameId = null;
-let currentHeroSurfaceTrackingKey = null;
-
-// GIF playback via gifler
-let activeGifPlayback = null;
-let giflerLoaderPromise = null;
-let preparedToGifCanvas = null, preparedToGifKey = null;
-
-// Slingshot pull state
-let pullTargetSectionIdx = null, pullTargetItemIdx = null;
-let pullFromSurface = null, pullToSurface = null;
-let pullFromSurfacePromise = null, pullToSurfacePromise = null;
-let pullPreviewParticlesBase = null, pullPreviewParticles = null;
-let pullPreviewCanvasW = 0, pullPreviewCanvasH = 0;
-
-// Game mode slingshot coordinates
-let gameModePullSecIdx = null, gameModePullItemIdx = null;
-
-const DESKTOP_CHAIN_WINDOW_MS = 260;
-const REVEAL_HANDOFF_FADE_MS = 70;
-let lastDesktopNavInputAt = 0;
+let _si = 0, _ii = 0;
+let _phase = 'idle'; // 'idle' | 'transitioning' | 'pulling'
+let _homeSectionLocked = false;
+let _isGameActive      = false;
+let _queuedTarget      = null;
+// Pull state
+let _pullTargetSi, _pullTargetIi;
+let _pullFromSurface, _pullToSurface;
+let _pullFromPromise,  _pullToPromise;
+let _pullParticles, _pullCanvasW, _pullCanvasH;
 ```
 
-### External window APIs
+### `goTo(nextSi, nextIi, navOpts = {})`
 
-```js
-let isAsymptoteGameActive = false;
-window.__SPA_SetGameMode = (active) => { isAsymptoteGameActive = !!active; };
-window.__SPA_GoHome = () => goTo(0, 0);
-window.__SPA_ExitGameToCurrentItem = () => { void exitGameToCurrentItem(); };
-window.__SPA_EnterCurrentGame = () => { void enterCurrentGameWithTransition(); };
-window.__SPA_RestoreCurrentItemHero = () => {
-  renderHeroDOM(currentSectionIdx, currentItemIdx);
-  startCurrentHeroSurfaceTracking(currentSectionIdx, currentItemIdx);
-};
-window.__SPA_CloseCurrentOverlayWithTransition = () => { void closeOverlayWithTransition(); };
-window.__SPA_CancelSlingshot = () => { cancelSlingshot(); };
-```
-
-### Helper: `addActivationHandler(element, handler)`
-
-Fires on `touchend` (immediate, calls `preventDefault()`) and `onclick` (mouse / a11y fallback). Prevents double-fire on touch.
-
-### Hero spec resolution
-
-`getHeroSpec(sectionIdx, itemIdx)`:
-- `kind: 'image'` with `src` → `{ kind: 'image', src }`.
-- `kind: 'text'` with `text` → `{ kind: 'text', text }`.
-- Fallback → `{ kind: 'text', text: item.label }`.
-
-### URL safety
-
-`getSafeExternalUrl(action)`: `new URL(action, window.location.origin)`, return `href` only for `https:` protocol. Any other protocol or parse failure → `null`.
-
-### Navigation targets
-
-`getNextTarget(sectionIdx, itemIdx)`:
-- Next item in same section if available.
-- Else next section (wrapping), `itemIdx: 0`.
-- Sections filtered by `homeSectionLocked` (skip index 0 when locked).
-
-`getPrevTarget`: mirror — previous item, else previous section last item.
-
-### GIF playback system
-
-**`loadGifler()`** → Promise: lazily injects `<script src="js/vendor/gifler.min.js">`. Caches promise. Rejects if `window.gifler` not a function after load.
-
-**`startGifHeroPlayback({ canvas, src, width=320, height=320, playbackKey })`**:
-- Stops any active playback.
-- `loadGifler().then(gifler => gifler(src).animate(canvas, frameCallback))`.
-- Frame callback: scale-to-fit centered, set `hasPaintedFrame = true`.
-- Fallback if gifler fails: `new Image()` draw centered to canvas (no animation).
-- Returns `{ stop() }`.
-
-**`stopActiveGifHeroPlayback()`**: calls `activeGifPlayback.stop()` if set.
-
-**`prepareToGifCanvas(sectionIdx, itemIdx, src, width=320, height=320)`**:
-- Returns cached canvas if key matches.
-- Creates canvas, starts playback with key `prepared:${sectionIdx}:${itemIdx}`.
-- Stores in `preparedToGifCanvas/preparedToGifKey`.
-
-### Hero DOM rendering
-
-`renderHeroDOM(sectionIdx, itemIdx, options = {})`:
-
-1. Stop active GIF playback (unless `options.preserveActiveGifPlayback`).
-2. Clear `heroContainer.innerHTML`.
-3. If `window.__SPA_Views?.[sectionId]?.mount` exists → delegate and return.
-4. Create `.spa-hero` div. Set `draggable="false"`, prevent dragstart.
-5. If item has `clickAction` (external or overlay): add `spa-hero--linkable`, role=link, tabindex=0, keydown handler for Enter/Space.
-6. If `heroSpec.kind === 'image'`:
-   - If GIF (`.gif` in src): use `options.preparedGifCanvas` or create new canvas. `spa-hero-gif spa-hero-gif-canvas`, `pointerEvents: none`, 320×320. Apply warmup surface if provided. Start playback with key `${sectionIdx}:${itemIdx}`.
-   - Else: `<img>` with `spa-hero-image`, 320×320, `draggable: false`.
-7. Else (text): add `spa-hero--text`, create `.spa-hero-text` div with textContent.
-8. Append hero to `heroContainer`.
-
-### Navigation rendering
-
-**`updateSectionNav(sectionIdx)`**: creates/reuses `#spa-section-nav`. Renders one `.spa-nav-btn` per section (skip home when `homeSectionLocked`). Active section gets `fontWeight: bold`, `background: #333`, `aria-current: "page"`.
-
-**`updateItemDots(sectionIdx, itemIdx)`**: renders `.spa-dot` buttons (one per item). Skip render if ≤ 1 item. Active gets `aria-selected="true"`.
-
-**`render()`**: calls both update functions then `renderHeroDOM`.
-
-**`setupItemNav()`**: creates prev/next buttons in `#spa-item-nav` if not present. Attaches `addActivationHandler`.
-
-### Transition canvas alignment
-
-**`alignTransitionCanvas(transitionCanvas, fromSurface, toSurface)`**:
-
-```
-STAGE_PADDING_PX = 72
-stageWidth  = max(from.width,  to.width)  + STAGE_PADDING_PX * 2
-stageHeight = max(from.height, to.height) + STAGE_PADDING_PX * 2
-transitionCanvas.width  = stageWidth
-transitionCanvas.height = stageHeight
-```
-
-Position canvas centered on hero or heroContainer within `#spa-root` using `getBoundingClientRect()` differences. Set `style.left` and `style.top` (canvas uses `transform: translate(-50%, -50%)`).
-
-### `runHeroTransition(fromSurface, toSurface, transitionOptions)`
-
-1. `alignTransitionCanvas`.
-2. Hide hero: `visibility: hidden; opacity: 0; transition: ''`.
-3. Show canvas: `display: block; opacity: 1; transition: ''`.
-4. `await transition(fromCanvas, toCanvas, { ctx, fromRegion, toRegion, ...engineOptions })` wrapped in a Promise.
-5. In finally:
-   - Call `onBeforeReveal()` if provided (await).
-   - Restore hero: `visibility: visible; transition: opacity ${REVEAL_HANDOFF_FADE_MS}ms ease-out`.
-   - Canvas: `transition: opacity ${REVEAL_HANDOFF_FADE_MS}ms ease-in`.
-   - `await rAF`, then set `heroOpacity=1`, `canvasOpacity=0`.
-   - `await setTimeout(REVEAL_HANDOFF_FADE_MS)`.
-   - Hide canvas: `display: none; opacity: 1; transition: ''`. Clear hero transition.
-
-### Hero surface caching system
-
-**`getHeroSurfaceKey(si, ii)`** → `"${si}:${ii}"`.
-
-**`isGifHeroSpec(hero)`** → true if `hero.kind === 'image'` and src matches `/\.gif(?:[?#]|$)/i`.
-
-**`isProceduralCanvasHero(si, ii)`** → true if `window.__SPA_Views?.[sectionId]?.buildHeroProbe` exists AND `heroContainer.querySelector('canvas')` is non-null.
-
-**`findHeroSeedCanvas(heroContainer)`**: prefers `.spa-hero-gif-canvas`, then `.spa-hero canvas`.
-
-**`startCurrentHeroSurfaceTracking(si, ii)`**:
-- Stops previous tracking.
-- For text + non-procedural: `refreshCurrentHeroSurface` once, then RAF loop that refreshes while not transitioning and target matches.
-- For GIF or procedural canvas: skip tracking (`currentHeroSurface = null`).
-
-**`stopCurrentHeroSurfaceTracking()`**: cancel RAF, clear tracking key.
-
-**`refreshCurrentHeroSurface(si, ii)`**: calls `rasterizeHero(buildHeroRenderInput(si, ii, 'from'))`, stores result in `currentHeroSurface/Key`.
-
-### Hero surface building
-
-**`buildHeroRenderInput(si, ii, phase)`**:
-- `phase='from'`: prefer live inline overlay el, then live `.spa-hero`, then `window.__SPA_Views[sectionId]?.buildHeroProbe(itemId, container)`, then `createTextProbe(text)`.
-- `phase='from'` image: prefer `.spa-hero-gif-canvas` canvas, then `.spa-hero-image` img.
-- Fallback for image: `{ type: 'gif', src: hero.src }`.
-
-**`buildHeroSurface(si, ii, phase)`**:
-- `phase='from'` and key matches and not GIF/procedural and cache valid → return `currentHeroSurface`.
-- Otherwise: `rasterizeWithCleanup(buildHeroRenderInput(...))`.
-- For element-type from with gif fallback: race element capture against src rasterization.
-
-### `goTo(nextSi, nextIi, navOptions = {})`
-
-Guard: `homeSectionLocked && nextSi === 0 && currentSi !== 0` → return.
-Guard: same target → return.
-Guard: already transitioning → queue target (replacing any existing queue).
+Guards: `_homeSectionLocked && nextSi === 0 && _si !== 0` → return. Same target and not pulling → return. Phase non-idle → queue target, return.
 
 Flow:
-1. `isTransitioning = true`, `activeTarget = { ...requestedTarget, transitionOptions }`.
-2. Stop GIF playback, stop surface tracking.
-3. Invalidate pull state (from/to surfaces and promises).
-4. Call `onDeactivate` on outgoing view (swallow errors).
-5. `prepareToGifCanvas` for target if GIF.
-6. `await Promise.all([buildHeroSurface(from,'from'), buildHeroSurface(to,'to')])`.
-7. `await runHeroTransition(from, to, { ...transitionOptions, onBeforeReveal: async () => { ... } })`.
-8. Inside `onBeforeReveal`: `closeOverlayForNavigation()`, optionally set `homeSectionLocked`, `renderHeroDOM` with prepared GIF canvas, `updateSectionNav/Dots`, set `didRenderDuringReveal = true`.
-9. Commit: `currentSectionIdx = next; currentItemIdx = next`.
-10. Call `onActivate` on incoming view.
-11. If not `didRenderDuringReveal`: `render()`.
-12. In finally: `isTransitioning = false`, `startTracking`, process `queuedTarget`.
+1. `_phase = 'transitioning'`, stop surface tracking.
+2. Call `onDeactivate` on outgoing view (swallow errors).
+3. `await Promise.all([buildSurface(from,'from'), buildSurface(to,'to')])`.
+4. `await transitionKernel.runTransition(from, to, { ...navOpts, onBeforeReveal })`.
+   - `onBeforeReveal`: `_closeOverlayForNav()`, set `_homeSectionLocked = true` if moving away from home, `renderHeroDOM(nextSi, nextIi)`, `updateSectionNav`, `updateItemDots`.
+5. In `finally`: commit `_si/_ii`, call `onActivate` on incoming view, `_render()` if reveal didn't already render, `_phase = 'idle'`, `startTracking`, drain queue.
 
-### Pull preview system
+### Overlay lifecycle
 
-**Constants:**
-```
-SLINGSHOT_PARTICLE_SIZE = 4
-SLINGSHOT_MIN_RELEASE   = 0.15
-STRETCH_MAX = 55  (px at pullNormalized=1)
-TRAIL_BIAS  = 0.55
-```
+`openOverlayWithTransition(overlayId)`: build probe via `window.__SPA_Overlay.buildProbe(overlayId, {}, { inline: true })`, rasterize it, transition, then `overlay.openInline(overlayId, {}, heroContainer)`.
 
-**`samplePullParticles(surface, canvasW, canvasH)`**: draw surface centered on offscreen canvas, read pixels, collect `{ x, y, cx, cy, color, frayX, frayY }` (cx/cy = offset from canvas center; frayX/Y = stable per-particle random direction in ±1 range).
+`closeOverlayWithTransition()`: capture current hero (from) and target hero (to), transition, then `overlay.close({ restore: false })` + `renderHeroDOM`.
 
-**`renderPullPreview(pullVector, pullNormalized)`**:
-- Phase A (< 0.25): draw `pullFromSurface` centered. `pullPreviewParticles = null`. Return.
-- Phase B entry (0.25, first time): sample particles into `pullPreviewParticlesBase`.
-- Phase B (0.25–0.65): hero alpha fades (1 - phaseB), particles fade in.
-- Phase C (0.65–1.0): fully particle.
-- Particle displacement: `proj = (p.cx * pullNx + p.cy * pullNy) / (maxRadius * 0.5)`. Asymmetric scale: `proj >= 0 ? 0.4 : 1.2`. `stretchAmt = proj * pullNormalized * STRETCH_MAX * asymScale`. Fray direction biased toward trailing: `(-pullNx) * TRAIL_BIAS + p.frayX * (1 - TRAIL_BIAS)`.
+`_closeOverlayForNav()`: instant `overlay.close({ restore: false })` if open.
+
+### Game mode
+
+`enterCurrentGameWithTransition()`: build probe via `window.__SPA_GameNav.buildHeroProbe`, rasterize, transition, then `window.__SPA_Views['games'].mount('asymptote', heroContainer)` + set `_isGameActive = true`.
+
+`exitGameToCurrentItem()`: transition from game canvas back to current hero. Set `_isGameActive = false`.
+
+`gameNavigate(direction)`: build from/to probes via `window.__SPA_GameNav`, rasterize both, transition, `commitTo`.
 
 ### Slingshot callbacks
 
-**`onSlingshotLock({ direction, pullVector, pullNormalized })`**:
-- If already transitioning/pulling and not in game: queue target, return `false`.
-- Start `isPulling=true, isTransitioning=true`.
-- Kick off `assignPullFromPromise` and `assignPullToPromise` in parallel.
-- Seed transition canvas with live canvas frame if `pullFromSurface` not yet available.
-- Hide hero DOM, show transition canvas.
-- Call `renderPullPreview`.
+**`onTap()`**: return if `__SPA_Overlay.shouldSuppressTap()`. If overlay open → `closeOverlayWithTransition()`. If game active → `__SPA_GameNav.onTap()`. Else → `_handleHeroAction(getClickAction(_si, _ii))`.
 
-**`onSlingshotPull`**: call `renderPullPreview`.
+**`onLock({ direction })`**: if `_phase === 'transitioning'` → queue target, return `false`. If `_phase === 'pulling'` → return `false`. Compute target (game: `__SPA_GameNav.getToTarget(direction)`, normal: `getTargetForDirection`). Set `_phase = 'pulling'`, kick off `_pullFromPromise` and `_pullToPromise` in parallel (`.then` stores resolved surface). `resetPullPreview`, `alignCanvas({ width: 320, height: 320 }, { width: 320, height: 320 })`, `showCanvas`, `hideHero`. Return `true`.
 
-**`onSlingshotRelease({ pullNormalized })`**:
-- If `pullNormalized < SLINGSHOT_MIN_RELEASE` → `cancelSlingshot()`, call `runWeakPullTapFallbackIfNeeded()` (fires overlay action if applicable).
-- Await `Promise.all([pullFromSurfacePromise, pullToSurfacePromise])`.
-- `alignTransitionCanvas` with resolved surfaces.
-- If `pullPreviewParticles` available: remap particles to new canvas coordinates (shiftX/Y from old vs new canvas size), call `transitionFromPull(remapped, toSurface, ctx, { fromParticlesBase: remappedBase }, resolve)`.
-- Else: fall back to `transition(from, to, ...)`.
-- Reveal sequence (same as `runHeroTransition` finally block).
-- Commit state: `currentSectionIdx/ItemIdx`, activate incoming view.
-- `cleanupSlingshotPull()`, start surface tracking.
-- Process `queuedTarget`.
+**`onPull({ pullVector, pullNormalized })`**: if `_pullFromSurface` available re-align canvas, then call `transitionKernel.renderPullPreview`, store result particles/canvas size.
 
-**`cancelSlingshot()`**: hide canvas, show hero, restore DOM, cleanup pull state, restart surface tracking, re-activate current view.
+**`onRelease({ pullNormalized })`**: if < `SLINGSHOT_MIN_RELEASE` → `cancelSlingshot()`. Await both surface promises. `runSlingshotRelease`. Commit `_si/_ii`. If game active commit via `__SPA_GameNav.commitTo`. Call `onActivate`. `_cleanupPull`, `startTracking`, drain queue.
 
-**`cleanupSlingshotPull()`**: reset all pull state variables (isPulling, isTransitioning, activeTarget, queuedTarget, all pull coords/surfaces/promises/particles/gameModeCoords).
+**`cancelSlingshot()`**: `hideCanvas`, restore hero element visibility, `_cleanupPull`, `startTracking`, re-activate current view.
 
-### Promise binding helpers
+**`_cleanupPull()`**: `_phase = 'idle'`, clear all pull state vars, `resetPullPreview`.
 
-**`assignPullFromPromise(p)`**: binds to `pullFromSurfacePromise`; `.then` sets `pullFromSurface` only if promise hasn't been superseded.
+### `navigate(direction, navOpts = {})`
 
-**`assignPullToPromise(p)`**: same for `pullToSurface`.
+Routes to `gameNavigate(direction)` if game active, else `getTargetForDirection` + `goTo`.
+
+### Hero action: `_handleHeroAction(clickAction)`
+
+- `overlay:{id}` → `openOverlayWithTransition(id)`.
+- Otherwise → `getSafeExternalUrl(clickAction)` → `window.open(url, '_blank', 'noopener,noreferrer')` with `newWindow.opener = null`.
+
+### Public API
+
+```js
+{
+  goTo, navigate,
+  onTap, onLock, onPull, onRelease, onCancel, cancelSlingshot,
+  openOverlayWithTransition, closeOverlayWithTransition,
+  enterCurrentGameWithTransition, exitGameToCurrentItem, gameNavigate,
+  setGameActive(active),
+  getSi(), getIi(), isTransitioning(),
+  onHeroAction: _handleHeroAction,
+  render: _render,
+  restoreCurrentItemHero()
+}
+```
+
+---
+
+## main.js  — entry point (type="module")
+
+Imports at top of file:
+```js
+import { rasterizeHero }          from './js/spa/rasterizeHero.js';
+import { initSlingshot }          from './js/spa/slingshotGesture.js';
+import { getSection, getItem }    from './js/spa/spaData.js';
+import { createDesktopNavTracker } from './js/spa/navModel.js';
+import { createNavRenderer }      from './js/spa/renderNav.js';
+import { createHeroRenderer }     from './js/spa/renderHero.js';
+import { createSurfaceManager }   from './js/spa/surfaceManager.js';
+import { createTransitionKernel } from './js/spa/transitionKernel.js';
+import { createAppKernel }        from './js/spa/appKernel.js';
+```
+
+### DOM references
+
+```js
+const heroContainer    = document.getElementById('spa-hero-container');
+const transitionCanvas = document.getElementById('transition-canvas');
+const transitionCtx    = transitionCanvas.getContext('2d');
+const dotsContainer    = document.getElementById('spa-dots');
+```
+
+### Module wiring
+
+```js
+const desktopNav = createDesktopNavTracker();
+
+// Forward reference: heroRenderer needs kernel.onHeroAction, wired below.
+let kernel;
+
+const heroRenderer = createHeroRenderer({
+  heroContainer,
+  onAction: (action) => kernel.onHeroAction(action)
+});
+
+const navRenderer = createNavRenderer({
+  dotsContainer,
+  onNav: (si, ii) => kernel.goTo(si, ii)
+});
+
+const surfaceManager = createSurfaceManager({
+  heroContainer,
+  rasterizeHero,
+  getIsTransitioning: () => kernel.isTransitioning()
+});
+
+const transitionKernel = createTransitionKernel({
+  transitionCanvas, transitionCtx, heroContainer
+});
+
+kernel = createAppKernel({
+  surfaceManager, transitionKernel, heroRenderer, navRenderer,
+  rasterizeHero, heroContainer, desktopNav
+});
+```
+
+### Window APIs
+
+```js
+window.__SPA_SetGameMode = (active) => kernel.setGameActive(active);
+window.__SPA_GoHome      = () => kernel.goTo(0, 0);
+window.__SPA_ExitGameToCurrentItem             = () => void kernel.exitGameToCurrentItem();
+window.__SPA_EnterCurrentGame                  = () => void kernel.enterCurrentGameWithTransition();
+window.__SPA_RestoreCurrentItemHero            = () => kernel.restoreCurrentItemHero();
+window.__SPA_CloseCurrentOverlayWithTransition = () => void kernel.closeOverlayWithTransition();
+window.__SPA_CancelSlingshot                   = () => kernel.cancelSlingshot();
+```
 
 ### Keyboard navigation
 
 ```js
 window.addEventListener('keydown', (e) => {
-  const isPrev = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
-  const isNext = e.key === 'ArrowRight' || e.key === 'ArrowDown';
-  if (!isPrev && !isNext) return;
-  // In game mode: prevent default, route to gameNavigateWithTransition
-  // Normal: call prevItem / nextItem with desktop nav options
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
+  e.preventDefault();
+  const direction = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev';
+  kernel.navigate(direction, desktopNav.getNavOptions());
 });
 ```
-
-**`getDesktopNavOptions()`**: compares `performance.now()` against `lastDesktopNavInputAt` with `DESKTOP_CHAIN_WINDOW_MS = 260`. Returns `timingProfile: 'releaseLike'` or `timingProfile: 'releaseLikeChained'`.
-
-### Game mode integration (stubs required)
-
-These functions are required and must exist but their internal game-specific logic depends on `window.__SPA_GameNav` and `window.__SPA_Views.games`:
-
-- `enterCurrentGameWithTransition()`: transition from current hero to game probe via `runHeroTransition`.
-- `exitGameToCurrentItem()`: transition back from game to current entry hero.
-- `gameNavigateWithTransition(direction, navOptions)`: in-game navigation with full particle transition using `window.__SPA_GameNav.buildHeroProbe / getFromTarget / getToTarget / commitTo`.
-
-### Overlay integration (stubs required)
-
-- `openOverlayWithTransition(action)`: build probe from `window.__SPA_Overlay.buildProbe`, transition, then `openInline`.
-- `closeOverlayWithTransition()`: capture current hero, transition, then `window.__SPA_Overlay.close({ restore: false })`.
-- `closeOverlayForNavigation()`: instant close, no transition.
 
 ### Boot sequence
 
 ```js
-setupItemNav();
-render();
-// Activate initial view
-const sectionId = SPA_SECTIONS[0]?.id;
-const itemId = SPA_SECTIONS[0]?.items[0]?.id;
-if (sectionId && itemId) {
-  try { window.__SPA_Views?.[sectionId]?.onActivate?.(itemId); } catch (_) {}
+navRenderer.setupItemNav(
+  document.getElementById('spa-prev-btn'),
+  document.getElementById('spa-next-btn'),
+  () => kernel.navigate('prev', desktopNav.getNavOptions()),
+  () => kernel.navigate('next', desktopNav.getNavOptions())
+);
+
+kernel.render();
+
+const _initSection = getSection(0), _initItem = getItem(0, 0);
+if (_initSection && _initItem) {
+  try { window.__SPA_Views?.[_initSection.id]?.onActivate?.(_initItem.id); } catch (_) {}
 }
-startCurrentHeroSurfaceTracking(0, 0);
-initSlingshot(document.getElementById('spa-hero-container'), {
-  onArm: onSlingshotArm,
-  onTap: onSlingshotTap,
-  onLock: onSlingshotLock,
-  onPull: onSlingshotPull,
-  onRelease: onSlingshotRelease,
-  onCancel: onSlingshotCancel
+
+surfaceManager.startTracking(0, 0);
+
+initSlingshot(heroContainer, {
+  onTap:     () => kernel.onTap(),
+  onLock:    (e) => kernel.onLock(e),
+  onPull:    (e) => kernel.onPull(e),
+  onRelease: (e) => kernel.onRelease(e),
+  onCancel:  () => kernel.onCancel()
 });
 ```
 
@@ -712,10 +848,14 @@ Sets `window.__INDROLEND_ROUTES__` with shape:
 ```js
 window.__INDROLEND_ROUTES__ = {
   items: {
-    'social/tiktok':    { clickAction: 'https://tiktok.com/@indrolend' },
-    'social/instagram': { clickAction: 'https://instagram.com/indrolend' },
-    // ... etc for all social / music / games items
-    'music/soundcloud': { clickAction: 'overlay:soundcloud' }  // example overlay action
+    'social/tiktok':    { clickAction: 'https://www.tiktok.com/@indrolend' },
+    'social/instagram': { clickAction: 'https://www.instagram.com/indrolend' },
+    'social/youtube':   { clickAction: 'https://www.youtube.com/@indrolend' },
+    'music/spotify':    { clickAction: 'https://open.spotify.com/artist/indrolend' },
+    'music/appleMusic': { clickAction: 'https://music.apple.com/us/artist/indrolend' },
+    'music/bandcamp':   { clickAction: 'https://indrolend.bandcamp.com' },
+    'music/soundcloud': { clickAction: 'overlay:soundcloud' },
+    'games/asymptote':  { clickAction: 'overlay:asymptote' }
   }
 };
 ```
@@ -767,13 +907,13 @@ shouldSuppressTap()  → boolean
 
 ## Behavioral invariants
 
-1. `isTransitioning` and `isPulling` are mutual guards — no transition starts while either is true.
-2. At most one `queuedTarget` at a time; new navigation requests while busy replace the queue.
-3. GIF heroes never use cached `currentHeroSurface`; always captured live at transition start.
-4. Procedural canvas heroes (game engine) never use cached surface; always captured live.
-5. Pull preview particle positions are stored canvas-local. On release, they are remapped by `(newCW - oldCW) / 2` shift before being passed to `transitionFromPull`.
+1. `_phase` is a three-state machine: `'idle'` | `'transitioning'` | `'pulling'`. No transition or pull starts while phase is non-idle.
+2. At most one `_queuedTarget` at a time; new navigation requests while busy replace the queue.
+3. GIF heroes (`.gif` src) never use cached `_currentSurface`; always captured live at transition start.
+4. Procedural canvas heroes (game engine view with `buildHeroProbe`) never use cached surface; always captured live.
+5. Pull preview particle positions are stored canvas-local. On release, they are remapped by `(newCW - oldCW) / 2` shift before being passed to `runSlingshotRelease`.
 6. `REVEAL_HANDOFF_FADE_MS = 70` is used for both hero fade-in and canvas fade-out simultaneously (cross-fade).
-7. `homeSectionLocked` is set on first navigation away from home (index 0), never unset.
+7. `_homeSectionLocked` is set on first navigation away from home (index 0), never unset.
 8. All external link opens use `window.open(url, '_blank', 'noopener,noreferrer')` with `newWindow.opener = null`.
-9. slingshot tap fires overlay/link action for the current item; does nothing if overlay is open.
-10. Keyboard arrow keys use a chained timing window (`DESKTOP_CHAIN_WINDOW_MS = 260ms`) to select `timingProfile: 'releaseLikeChained'` for rapid key-repeat navigation.
+9. Slingshot tap fires overlay/link action for the current item; does nothing if overlay suppresses taps.
+10. Keyboard arrow keys use a chained timing window (`DESKTOP_CHAIN_WINDOW_MS = 260ms`) to select `timingProfile: 'chained'` for rapid key-repeat navigation.
