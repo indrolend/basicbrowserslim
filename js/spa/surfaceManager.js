@@ -1,53 +1,62 @@
-// heroSurface.js — hero surface capture, rasterization, and RAF tracking
+// surfaceManager.js — hero surface rasterization, tracking, and caching
+//
+// Replaces heroSurface.js with an explicit contract name.
+//
+// Owns:
+//   - Tracking the live hero surface via RAF (refreshed each frame while idle)
+//   - Building on-demand surfaces for 'from' and 'to' phases
+//   - Caching the most recent surface per hero key
+//
+// Does NOT own: particle sampling, canvas alignment, or transition lifecycle.
 //
 // Usage:
-//   const hs = createHeroSurface({ heroContainer, rasterizeHero, getIsTransitioning });
-//   hs.startTracking(si, ii);
-//   hs.stopTracking();
-//   const surface = await hs.buildHeroSurface(si, ii, 'from');
+//   const sm = createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning });
+//   sm.startTracking(si, ii);
+//   sm.stopTracking();
+//   const surface = await sm.buildSurface(si, ii, 'from');
 
 import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from './spaData.js';
 
-export function createHeroSurface({ heroContainer, rasterizeHero, getIsTransitioning }) {
-  let currentSurface     = null;
-  let currentSurfaceKey  = null;
-  let currentFrameId     = null;
-  let currentTrackingKey = null;
+export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
+  let _currentSurface    = null;
+  let _currentKey        = null;
+  let _frameId           = null;
+  let _trackingKey       = null;
 
   function stopTracking() {
-    if (currentFrameId) { cancelAnimationFrame(currentFrameId); currentFrameId = null; }
-    currentTrackingKey = null;
+    if (_frameId) { cancelAnimationFrame(_frameId); _frameId = null; }
+    _trackingKey = null;
   }
 
   function startTracking(si, ii) {
     stopTracking();
     const key = getHeroSurfaceKey(si, ii);
-    currentTrackingKey = key;
+    _trackingKey = key;
 
     // GIF and procedural heroes: no surface cache needed
     if (isGifHero(si, ii) || window.__SPA_Views?.[getSection(si)?.id]?.buildHeroProbe) {
-      currentSurface    = null;
-      currentSurfaceKey = null;
+      _currentSurface = null;
+      _currentKey     = null;
       return;
     }
 
     function refresh() {
-      buildHeroSurface(si, ii, 'from').then(s => {
-        if (currentTrackingKey !== key) return;
-        currentSurface    = s;
-        currentSurfaceKey = key;
+      buildSurface(si, ii, 'from').then(s => {
+        if (_trackingKey !== key) return;
+        _currentSurface = s;
+        _currentKey     = key;
       }).catch(() => {});
     }
 
     function loop() {
-      if (currentTrackingKey !== key) return;
+      if (_trackingKey !== key) return;
       if (!getIsTransitioning()) refresh();
-      currentFrameId = requestAnimationFrame(loop);
+      _frameId = requestAnimationFrame(loop);
     }
-    currentFrameId = requestAnimationFrame(loop);
+    _frameId = requestAnimationFrame(loop);
   }
 
-  function buildHeroRenderInput(si, ii, phase) {
+  function _buildRenderInput(si, ii, phase) {
     const section = getSection(si);
     const item    = getItem(si, ii);
     if (!section || !item) return null;
@@ -91,12 +100,12 @@ export function createHeroSurface({ heroContainer, rasterizeHero, getIsTransitio
     return { type: 'text', text: heroSpec.text || item.label };
   }
 
-  async function buildHeroSurface(si, ii, phase) {
+  async function buildSurface(si, ii, phase) {
     const key    = getHeroSurfaceKey(si, ii);
-    const cached = phase === 'from' && currentSurface && currentSurfaceKey === key && !isGifHero(si, ii);
-    if (cached) return currentSurface;
+    const cached = phase === 'from' && _currentSurface && _currentKey === key && !isGifHero(si, ii);
+    if (cached) return _currentSurface;
 
-    const input = buildHeroRenderInput(si, ii, phase);
+    const input = _buildRenderInput(si, ii, phase);
     if (!input) return null;
     try {
       const surface = await rasterizeHero(input);
@@ -108,5 +117,5 @@ export function createHeroSurface({ heroContainer, rasterizeHero, getIsTransitio
     }
   }
 
-  return { stopTracking, startTracking, buildHeroRenderInput, buildHeroSurface };
+  return { startTracking, stopTracking, buildSurface };
 }
