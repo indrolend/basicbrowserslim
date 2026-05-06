@@ -3,7 +3,9 @@
 // Used by particlePlans.js (explode-reform, pull-reform) and
 // transitionKernel.js (slingshot pull-preview sampling).
 
-export const PARTICLE_SIZE = 4;
+export const PARTICLE_SIZE   = 4;
+export const FOCAL_LENGTH    = 300;
+export const EXPLODE_Z_RANGE = 220;
 
 /** Reused scratch canvas; sequential sampleParticles calls are safe. */
 let _scratchCanvas = null;
@@ -66,4 +68,21 @@ export function shuffle(list) {
 export function parseRgba(color) {
   const m = /rgba\((\d+),(\d+),(\d+),([0-9.]+)\)/.exec(color);
   return m ? [+m[1], +m[2], +m[3], +m[4]] : [255, 255, 255, 1];
+}
+
+/**
+ * Project a 3D point onto the 2D canvas plane using simple perspective.
+ * z = 0 means on the screen plane; positive z moves away from the viewer (shrinks/fades);
+ * negative z moves toward the viewer (grows/brightens).
+ *
+ * @param {number} x  Pre-projection x position
+ * @param {number} y  Pre-projection y position
+ * @param {number} z  Depth value
+ * @param {number} cx Canvas centre x
+ * @param {number} cy Canvas centre y
+ * @returns {{ px: number, py: number, scale: number }}
+ */
+export function projectParticle(x, y, z, cx, cy) {
+  const scale = FOCAL_LENGTH / (FOCAL_LENGTH + z);
+  return { px: cx + (x - cx) * scale, py: cy + (y - cy) * scale, scale };
 }

@@ -3,7 +3,7 @@
 // Each builder returns { particles, phases } for use with particleEngine.runParticleAnimation.
 // Plans are pure data: they do not touch the DOM or any canvas directly.
 
-import { PARTICLE_SIZE, sampleParticles, sampleByCoverage, shuffle, parseRgba } from './particleSampler.js';
+import { PARTICLE_SIZE, EXPLODE_Z_RANGE, sampleParticles, sampleByCoverage, shuffle, parseRgba, projectParticle } from './particleSampler.js';
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
 
@@ -64,7 +64,10 @@ export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvas
       x0: s.x, y0: s.y, c0: parseRgba(s.color),
       x1: e.x, y1: e.y, c1: parseRgba(e.color),
       ex: s.x + Math.cos(angle) * radius,
-      ey: s.y + Math.sin(angle) * radius
+      ey: s.y + Math.sin(angle) * radius,
+      z0: 0,
+      ze: Math.random() * EXPLODE_Z_RANGE - EXPLODE_Z_RANGE * 0.5,
+      z1: 0
     });
   }
 
@@ -72,13 +75,21 @@ export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvas
     {
       duration: EXPLODE_DURATION,
       tick(elapsed, pts, ctx) {
-        const p = elapsed / EXPLODE_DURATION;
+        const p  = elapsed / EXPLODE_DURATION;
+        const cx = ctx.canvas.width  / 2;
+        const cy = ctx.canvas.height / 2;
         for (const pt of pts) {
+          const x = pt.x0 + (pt.ex - pt.x0) * p;
+          const y = pt.y0 + (pt.ey - pt.y0) * p;
+          const z = pt.z0 + (pt.ze - pt.z0) * p;
+          const { px, py, scale } = projectParticle(x, y, z, cx, cy);
+          ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
           ctx.fillStyle = `rgba(${pt.c0[0]},${pt.c0[1]},${pt.c0[2]},${pt.c0[3]})`;
           ctx.beginPath();
-          ctx.arc(pt.x0 + (pt.ex - pt.x0) * p, pt.y0 + (pt.ey - pt.y0) * p, PARTICLE_SIZE / 2, 0, Math.PI * 2);
+          ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
     },
     {
@@ -86,12 +97,20 @@ export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvas
       tick(elapsed, pts, ctx) {
         const p     = elapsed / REFORM_DURATION;
         const moveP = easeOutBack(p);
+        const cx    = ctx.canvas.width  / 2;
+        const cy    = ctx.canvas.height / 2;
         for (const pt of pts) {
+          const x = pt.ex + (pt.x1 - pt.ex) * moveP;
+          const y = pt.ey + (pt.y1 - pt.ey) * moveP;
+          const z = pt.ze + (pt.z1 - pt.ze) * p;
+          const { px, py, scale } = projectParticle(x, y, z, cx, cy);
+          ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
           ctx.fillStyle = lerpColor(pt.c0, pt.c1, p);
           ctx.beginPath();
-          ctx.arc(pt.ex + (pt.x1 - pt.ex) * moveP, pt.ey + (pt.y1 - pt.ey) * moveP, PARTICLE_SIZE / 2, 0, Math.PI * 2);
+          ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
     }
   ];
@@ -134,7 +153,8 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
     particles.push({
       x0: pulled.x, y0: pulled.y, c0: parseRgba(pulled.color),
       xm: mid.x,    ym: mid.y,
-      x1: end.x,    y1: end.y,   c1: parseRgba(end.color)
+      x1: end.x,    y1: end.y,   c1: parseRgba(end.color),
+      ze: Math.random() * EXPLODE_Z_RANGE * 0.5 - EXPLODE_Z_RANGE * 0.25
     });
   }
 
@@ -146,12 +166,21 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
       tick(elapsed, pts, ctx) {
         const raw  = elapsed / SNAP_DURATION;
         const ease = 1 - (1 - raw) * (1 - raw);
+        const cx   = ctx.canvas.width  / 2;
+        const cy   = ctx.canvas.height / 2;
         for (const pt of pts) {
+          const x = pt.x0 + (pt.xm - pt.x0) * ease;
+          const y = pt.y0 + (pt.ym - pt.y0) * ease;
+          // z starts at ze and converges toward 0 as snap progresses
+          const z = pt.ze * (1 - ease);
+          const { px, py, scale } = projectParticle(x, y, z, cx, cy);
+          ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
           ctx.fillStyle = `rgba(${pt.c0[0]},${pt.c0[1]},${pt.c0[2]},${pt.c0[3]})`;
           ctx.beginPath();
-          ctx.arc(pt.x0 + (pt.xm - pt.x0) * ease, pt.y0 + (pt.ym - pt.y0) * ease, PARTICLE_SIZE / 2, 0, Math.PI * 2);
+          ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
           ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
     });
   }
@@ -161,12 +190,21 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
     tick(elapsed, pts, ctx) {
       const p     = Math.min(elapsed / REFORM_DURATION, 1);
       const moveP = easeOutBack(p);
+      const cx    = ctx.canvas.width  / 2;
+      const cy    = ctx.canvas.height / 2;
       for (const pt of pts) {
+        const x = pt.xm + (pt.x1 - pt.xm) * moveP;
+        const y = pt.ym + (pt.y1 - pt.ym) * moveP;
+        // z starts at ze and returns to 0 as reform completes
+        const z = pt.ze * (1 - p);
+        const { px, py, scale } = projectParticle(x, y, z, cx, cy);
+        ctx.globalAlpha = Math.max(0.15, Math.min(1, scale));
         ctx.fillStyle = lerpColor(pt.c0, pt.c1, p);
         ctx.beginPath();
-        ctx.arc(pt.xm + (pt.x1 - pt.xm) * moveP, pt.ym + (pt.y1 - pt.ym) * moveP, PARTICLE_SIZE / 2, 0, Math.PI * 2);
+        ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.globalAlpha = 1;
     }
   });
 
