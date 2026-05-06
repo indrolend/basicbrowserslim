@@ -7,6 +7,7 @@ export const PARTICLE_SIZE    = 4;
 export const FOCAL_LENGTH     = 300;
 export const EXPLODE_Z_RANGE  = 220;
 export const MIN_DEPTH_ALPHA  = 0.15; // minimum alpha for depth-faded particles
+export const PULL_Z_RANGE     = 40;   // z-depth range for slingshot pull peel-off effect
 
 /** Reused scratch canvas; sequential sampleParticles calls are safe. */
 let _scratchCanvas = null;
@@ -73,12 +74,12 @@ export function parseRgba(color) {
 
 /**
  * Project a 3D point onto the 2D canvas plane using simple perspective.
- * z = 0 means on the screen plane; positive z moves away from the viewer (shrinks/fades);
- * negative z moves toward the viewer (grows/brightens).
+ * z = 0 means on the screen plane; positive z moves away from the viewer (shrinks);
+ * negative z moves toward the viewer (grows). Valid range: z > -FOCAL_LENGTH.
  *
  * @param {number} x  Pre-projection x position
  * @param {number} y  Pre-projection y position
- * @param {number} z  Depth value
+ * @param {number} z  Depth value (must be > -FOCAL_LENGTH)
  * @param {number} cx Canvas centre x
  * @param {number} cy Canvas centre y
  * @returns {{ px: number, py: number, scale: number }}
