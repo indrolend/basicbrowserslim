@@ -1,0 +1,65 @@
+// spaData.js — SPA section/item data, constants, and pure data accessors
+
+// ─── Sections data ────────────────────────────────────────────────────────────
+
+export const SPA_SECTIONS = [
+  {
+    id: 'home', label: 'Home',
+    items: [
+      { id: 'orb', label: 'Indrolend', hero: { kind: 'text', text: 'INDROLEND' }, swipe: true }
+    ]
+  },
+  {
+    id: 'social', label: 'Social',
+    items: [
+      { id: 'tiktok',    label: 'TikTok',    hero: { kind: 'image', src: 'gifs/Tiktoklogospin.gif' } },
+      { id: 'instagram', label: 'Instagram', hero: { kind: 'image', src: 'gifs/Instagramlogospin.gif' } },
+      { id: 'youtube',   label: 'YouTube',   hero: { kind: 'image', src: 'gifs/Youtubelogospin.gif' } }
+    ]
+  },
+  {
+    id: 'music', label: 'Music',
+    items: [
+      { id: 'spotify',    label: 'Spotify',     hero: { kind: 'image', src: 'gifs/Spotifylogospin.gif' } },
+      { id: 'appleMusic', label: 'Apple Music', hero: { kind: 'image', src: 'gifs/Applemusiclogospin.gif' } },
+      { id: 'bandcamp',   label: 'Bandcamp',    hero: { kind: 'image', src: 'gifs/bandcamplogospin.gif' } },
+      { id: 'soundcloud', label: 'SoundCloud',  hero: { kind: 'image', src: 'gifs/soundcloudlogospin.gif' } }
+    ]
+  },
+  {
+    id: 'games', label: 'Games',
+    items: [
+      { id: 'asymptote', label: 'Asymptote Engine', hero: { kind: 'text', text: 'Asymptote Engine' } }
+    ]
+  }
+];
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+export const STAGE_PADDING_PX        = 72;
+export const SLINGSHOT_MIN_RELEASE   = 0.15;
+export const REVEAL_HANDOFF_FADE_MS  = 70;
+export const DESKTOP_CHAIN_WINDOW_MS = 260;
+export const STRETCH_MAX             = 55;
+export const TRAIL_BIAS              = 0.55;
+export const SLINGSHOT_PARTICLE_SIZE = 4;
+
+// ─── Pure data accessors ──────────────────────────────────────────────────────
+
+export function getSection(si)      { return SPA_SECTIONS[si] ?? null; }
+export function getItem(si, ii)     { return SPA_SECTIONS[si]?.items[ii] ?? null; }
+export function getHeroSpec(si, ii) { return getItem(si, ii)?.hero ?? { kind: 'text', text: '' }; }
+
+export function getHeroSurfaceKey(si, ii) { return `${si}:${ii}`; }
+
+export function isGifHero(si, ii) {
+  const hero = getHeroSpec(si, ii);
+  return hero.kind === 'image' && /\.gif(?:[?#]|$)/i.test(hero.src || '');
+}
+
+export function getClickAction(si, ii) {
+  const section = getSection(si);
+  const item    = getItem(si, ii);
+  if (!section || !item) return null;
+  return window.__INDROLEND_ROUTES__?.items?.[`${section.id}/${item.id}`]?.clickAction ?? null;
+}
