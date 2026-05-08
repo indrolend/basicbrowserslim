@@ -226,17 +226,39 @@ function cropToContent(canvas, padding = 0) {
   const scanStep = 2;
   let minX = width, minY = height, maxX = 0, maxY = 0;
   let found = false;
+
+  function scanPoint(x, y) {
+    const idx = (y * width + x) * 4;
+    if (data[idx + 3] <= 32) return;
+    found = true;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
   for (let y = 0; y < height; y += scanStep) {
     for (let x = 0; x < width; x += scanStep) {
-      const idx = (y * width + x) * 4;
-      if (data[idx + 3] > 32) {
-        found = true;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+      scanPoint(x, y);
     }
+  }
+
+  if (width % scanStep === 0) {
+    const edgeX = width - 1;
+    for (let y = 0; y < height; y += scanStep) {
+      scanPoint(edgeX, y);
+    }
+  }
+
+  if (height % scanStep === 0) {
+    const edgeY = height - 1;
+    for (let x = 0; x < width; x += scanStep) {
+      scanPoint(x, edgeY);
+    }
+  }
+
+  if (width % scanStep === 0 && height % scanStep === 0) {
+    scanPoint(width - 1, height - 1);
   }
   if (!found) {
     return { canvas, offsetX: 0, offsetY: 0, width, height, hasVisibleContent: false };

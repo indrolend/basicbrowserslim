@@ -142,12 +142,14 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     const cx0 = cw / 2, cy0 = ch / 2;
     const result = [];
     const sampleStride = Math.max(1, Math.floor(SLINGSHOT_PARTICLE_SIZE / PULL_READBACK_DOWNSAMPLE));
+    const scaleX = cw / sampleW;
+    const scaleY = ch / sampleH;
     for (let y = 0; y < sampleH; y += sampleStride) {
       for (let x = 0; x < sampleW; x += sampleStride) {
         const idx = (y * sampleW + x) * 4;
         if (data[idx + 3] > 32) {
-          const xFull = Math.min(cw - 1, x * PULL_READBACK_DOWNSAMPLE);
-          const yFull = Math.min(ch - 1, y * PULL_READBACK_DOWNSAMPLE);
+          const xFull = Math.min(cw - 1, Math.floor((x + 0.5) * scaleX));
+          const yFull = Math.min(ch - 1, Math.floor((y + 0.5) * scaleY));
           result.push({
             x: xFull,
             y: yFull,

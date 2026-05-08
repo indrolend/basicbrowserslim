@@ -45,14 +45,18 @@ export function sampleParticles(region, canvasWidth, canvasHeight) {
   const imgData = cctx.getImageData(0, 0, sampleW, sampleH).data;
   const result  = [];
   const sampleStride = Math.max(1, Math.floor(PARTICLE_SIZE / READBACK_DOWNSAMPLE));
+  const scaleX = canvasWidth / sampleW;
+  const scaleY = canvasHeight / sampleH;
   for (let y = 0; y < sampleH; y += sampleStride) {
     for (let x = 0; x < sampleW; x += sampleStride) {
       const idx = (y * sampleW + x) * 4;
       const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
       if (a > 32) {
+        const fullX = Math.floor((x + 0.5) * scaleX);
+        const fullY = Math.floor((y + 0.5) * scaleY);
         result.push({
-          x: Math.min(canvasWidth - 1, x * READBACK_DOWNSAMPLE),
-          y: Math.min(canvasHeight - 1, y * READBACK_DOWNSAMPLE),
+          x: Math.min(canvasWidth - 1, fullX),
+          y: Math.min(canvasHeight - 1, fullY),
           color: `rgba(${r},${g},${b},${a / 255})`
         });
       }
