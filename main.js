@@ -98,6 +98,7 @@ function dispatchActionElement(el) {
 }
 
 document.addEventListener('click', (e) => {
+  if (typeof e.button === 'number' && e.button !== 0) return;
   if (e.defaultPrevented) return;
   const target = e.target?.closest?.('[data-action]');
   if (!target) return;

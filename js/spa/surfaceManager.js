@@ -44,8 +44,11 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
     }
 
     function primeWhenIdle() {
+      if (_trackingKey !== key) {
+        _deferredPrimeFrameId = 0;
+        return;
+      }
       _deferredPrimeFrameId = 0;
-      if (_trackingKey !== key) return;
       if (getIsTransitioning()) {
         _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
         return;
