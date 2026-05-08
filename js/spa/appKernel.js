@@ -46,6 +46,7 @@ export function createAppKernel({
   function _isTransitioning() { return _phase !== 'idle'; }
   function _isPulling()       { return _phase === 'pulling'; }
 
+  // Visible UI state contract: 'idle' | 'transitioning' | 'pulling' | 'overlay'
   function _computeUiState() {
     if (_phase !== 'idle') return _phase;
     return window.__SPA_Overlay?.isOpen?.() ? 'overlay' : 'idle';

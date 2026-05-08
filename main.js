@@ -62,7 +62,7 @@ window.__SPA_CancelSlingshot                   = () => kernel.cancelSlingshot();
 
 // ─── Keyboard navigation ──────────────────────────────────────────────────────
 
-function parseIntFromDataset(value) {
+function safeParseInt(value) {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -79,14 +79,14 @@ function dispatchActionElement(el) {
   }
 
   if (action === 'goto-section') {
-    const sectionIdx = parseIntFromDataset(el.dataset.sectionIdx);
+    const sectionIdx = safeParseInt(el.dataset.sectionIdx);
     if (sectionIdx !== null) void kernel.goTo(sectionIdx, 0);
     return;
   }
 
   if (action === 'goto-item') {
-    const sectionIdx = parseIntFromDataset(el.dataset.sectionIdx);
-    const itemIdx = parseIntFromDataset(el.dataset.itemIdx);
+    const sectionIdx = safeParseInt(el.dataset.sectionIdx);
+    const itemIdx = safeParseInt(el.dataset.itemIdx);
     if (sectionIdx !== null && itemIdx !== null) void kernel.goTo(sectionIdx, itemIdx);
     return;
   }
@@ -98,6 +98,7 @@ function dispatchActionElement(el) {
 }
 
 document.addEventListener('click', (e) => {
+  if (e.defaultPrevented) return;
   const target = e.target?.closest?.('[data-action]');
   if (!target) return;
   dispatchActionElement(target);
