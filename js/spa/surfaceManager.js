@@ -21,12 +21,12 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
   let _currentSurface    = null;
   let _currentKey        = null;
   let _trackingKey       = null;
-  let _primeFrameId      = 0;
+  let _deferredPrimeFrameId = 0;
 
   function stopTracking() {
-    if (_primeFrameId) {
-      cancelAnimationFrame(_primeFrameId);
-      _primeFrameId = 0;
+    if (_deferredPrimeFrameId) {
+      cancelAnimationFrame(_deferredPrimeFrameId);
+      _deferredPrimeFrameId = 0;
     }
     _trackingKey = null;
   }
@@ -44,10 +44,10 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
     }
 
     function primeWhenIdle() {
-      _primeFrameId = 0;
+      _deferredPrimeFrameId = 0;
       if (_trackingKey !== key) return;
       if (getIsTransitioning()) {
-        _primeFrameId = requestAnimationFrame(primeWhenIdle);
+        _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
         return;
       }
       buildSurface(si, ii, 'from').then(s => {
@@ -57,7 +57,7 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       }).catch(() => {});
     }
 
-    _primeFrameId = requestAnimationFrame(primeWhenIdle);
+    _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
   }
 
   function _buildRenderInput(si, ii, phase) {
