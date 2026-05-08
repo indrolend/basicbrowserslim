@@ -68,7 +68,7 @@ function safeParseInt(value) {
 }
 
 function dispatchActionElement(el) {
-  if (!el || el.disabled) return;
+  if (!el || el.hasAttribute?.('disabled') || el.disabled === true) return;
   const action = el.dataset.action;
   if (!action) return;
 
@@ -93,7 +93,7 @@ function dispatchActionElement(el) {
 
   if (action === 'hero-action') {
     const clickAction = el.dataset.clickAction;
-    if (clickAction) kernel.onHeroAction(clickAction);
+    if (typeof clickAction === 'string' && clickAction.length > 0) kernel.onHeroAction(clickAction);
     return;
   }
 
