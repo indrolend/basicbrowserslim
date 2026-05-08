@@ -3,7 +3,7 @@
 // Replaces heroSurface.js with an explicit contract name.
 //
 // Owns:
-//   - Tracking the live hero surface via RAF (refreshed each frame while idle)
+//   - One-shot tracking of the live hero surface when idle
 //   - Building on-demand surfaces for 'from' and 'to' phases
 //   - Caching the most recent surface per hero key
 //
@@ -21,8 +21,13 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
   let _currentSurface    = null;
   let _currentKey        = null;
   let _trackingKey       = null;
+  let _primeFrameId      = 0;
 
   function stopTracking() {
+    if (_primeFrameId) {
+      cancelAnimationFrame(_primeFrameId);
+      _primeFrameId = 0;
+    }
     _trackingKey = null;
   }
 
@@ -39,9 +44,10 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
     }
 
     function primeWhenIdle() {
+      _primeFrameId = 0;
       if (_trackingKey !== key) return;
       if (getIsTransitioning()) {
-        requestAnimationFrame(primeWhenIdle);
+        _primeFrameId = requestAnimationFrame(primeWhenIdle);
         return;
       }
       buildSurface(si, ii, 'from').then(s => {
@@ -51,7 +57,7 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       }).catch(() => {});
     }
 
-    requestAnimationFrame(primeWhenIdle);
+    _primeFrameId = requestAnimationFrame(primeWhenIdle);
   }
 
   function _buildRenderInput(si, ii, phase) {
