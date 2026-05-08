@@ -52,11 +52,11 @@ export function sampleParticles(region, canvasWidth, canvasHeight) {
       const idx = (y * sampleW + x) * 4;
       const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
       if (a > 32) {
-        const fullX = Math.floor((x + 0.5) * scaleX);
-        const fullY = Math.floor((y + 0.5) * scaleY);
+        const scaledX = Math.floor((x + 0.5) * scaleX);
+        const scaledY = Math.floor((y + 0.5) * scaleY);
         result.push({
-          x: Math.min(canvasWidth - 1, fullX),
-          y: Math.min(canvasHeight - 1, fullY),
+          x: Math.min(canvasWidth - 1, scaledX),
+          y: Math.min(canvasHeight - 1, scaledY),
           color: `rgba(${r},${g},${b},${a / 255})`
         });
       }

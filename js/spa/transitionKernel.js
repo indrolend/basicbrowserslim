@@ -148,13 +148,13 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
       for (let x = 0; x < sampleW; x += sampleStride) {
         const idx = (y * sampleW + x) * 4;
         if (data[idx + 3] > 32) {
-          const xFull = Math.min(cw - 1, Math.floor((x + 0.5) * scaleX));
-          const yFull = Math.min(ch - 1, Math.floor((y + 0.5) * scaleY));
+          const scaledX = Math.min(cw - 1, Math.floor((x + 0.5) * scaleX));
+          const scaledY = Math.min(ch - 1, Math.floor((y + 0.5) * scaleY));
           result.push({
-            x: xFull,
-            y: yFull,
-            cx: xFull - cx0,
-            cy: yFull - cy0,
+            x: scaledX,
+            y: scaledY,
+            cx: scaledX - cx0,
+            cy: scaledY - cy0,
             color: `rgba(${data[idx]},${data[idx + 1]},${data[idx + 2]},${(data[idx + 3] / 255).toFixed(2)})`,
             frayX: Math.random() * 2 - 1,
             frayY: Math.random() * 2 - 1,

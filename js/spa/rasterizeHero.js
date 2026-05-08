@@ -243,21 +243,24 @@ function cropToContent(canvas, padding = 0) {
     }
   }
 
-  if (width % scanStep === 0) {
+  const coversLastCol = ((width - 1) % scanStep) === 0;
+  const coversLastRow = ((height - 1) % scanStep) === 0;
+
+  if (!coversLastCol) {
     const edgeX = width - 1;
     for (let y = 0; y < height; y += scanStep) {
       scanPoint(edgeX, y);
     }
   }
 
-  if (height % scanStep === 0) {
+  if (!coversLastRow) {
     const edgeY = height - 1;
     for (let x = 0; x < width; x += scanStep) {
       scanPoint(x, edgeY);
     }
   }
 
-  if (width % scanStep === 0 && height % scanStep === 0) {
+  if (!coversLastCol && !coversLastRow) {
     scanPoint(width - 1, height - 1);
   }
   if (!found) {
