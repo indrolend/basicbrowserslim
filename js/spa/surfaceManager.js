@@ -20,11 +20,9 @@ import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from '
 export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
   let _currentSurface    = null;
   let _currentKey        = null;
-  let _frameId           = null;
   let _trackingKey       = null;
 
   function stopTracking() {
-    if (_frameId) { cancelAnimationFrame(_frameId); _frameId = null; }
     _trackingKey = null;
   }
 
@@ -40,20 +38,13 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       return;
     }
 
-    function refresh() {
+    if (!getIsTransitioning()) {
       buildSurface(si, ii, 'from').then(s => {
         if (_trackingKey !== key) return;
         _currentSurface = s;
         _currentKey     = key;
       }).catch(() => {});
     }
-
-    function loop() {
-      if (_trackingKey !== key) return;
-      if (!getIsTransitioning()) refresh();
-      _frameId = requestAnimationFrame(loop);
-    }
-    _frameId = requestAnimationFrame(loop);
   }
 
   function _buildRenderInput(si, ii, phase) {
