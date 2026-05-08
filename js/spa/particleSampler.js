@@ -8,6 +8,7 @@ export const FOCAL_LENGTH     = 300;
 export const EXPLODE_Z_RANGE  = 220;
 export const MIN_DEPTH_ALPHA  = 0.15; // minimum alpha for depth-faded particles
 export const PULL_Z_RANGE     = 40;   // z-depth range for slingshot pull peel-off effect
+const READBACK_DOWNSAMPLE     = 2;
 
 /** Reused scratch canvas; sequential sampleParticles calls are safe. */
 let _scratchCanvas = null;
@@ -23,22 +24,42 @@ let _scratchCanvas = null;
 export function sampleParticles(region, canvasWidth, canvasHeight) {
   if (!_scratchCanvas) _scratchCanvas = document.createElement('canvas');
   const c = _scratchCanvas;
-  if (c.width !== canvasWidth || c.height !== canvasHeight) {
-    c.width  = canvasWidth;
-    c.height = canvasHeight;
+  const sampleW = Math.max(1, Math.ceil(canvasWidth / READBACK_DOWNSAMPLE));
+  const sampleH = Math.max(1, Math.ceil(canvasHeight / READBACK_DOWNSAMPLE));
+  if (c.width !== sampleW || c.height !== sampleH) {
+    c.width  = sampleW;
+    c.height = sampleH;
   }
   const cctx = c.getContext('2d');
   const dx = (canvasWidth  - region.width)  / 2;
   const dy = (canvasHeight - region.height) / 2;
-  cctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  cctx.drawImage(region.canvas, 0, 0, region.width, region.height, dx, dy, region.width, region.height);
-  const imgData = cctx.getImageData(0, 0, canvasWidth, canvasHeight).data;
+  cctx.clearRect(0, 0, sampleW, sampleH);
+  cctx.drawImage(
+    region.canvas,
+    0, 0, region.width, region.height,
+    dx / READBACK_DOWNSAMPLE,
+    dy / READBACK_DOWNSAMPLE,
+    region.width / READBACK_DOWNSAMPLE,
+    region.height / READBACK_DOWNSAMPLE
+  );
+  const imgData = cctx.getImageData(0, 0, sampleW, sampleH).data;
   const result  = [];
-  for (let y = 0; y < canvasHeight; y += PARTICLE_SIZE) {
-    for (let x = 0; x < canvasWidth; x += PARTICLE_SIZE) {
-      const idx = (y * canvasWidth + x) * 4;
+  const sampleStride = Math.max(1, Math.floor(PARTICLE_SIZE / READBACK_DOWNSAMPLE));
+  const scaleX = canvasWidth / sampleW;
+  const scaleY = canvasHeight / sampleH;
+  for (let y = 0; y < sampleH; y += sampleStride) {
+    for (let x = 0; x < sampleW; x += sampleStride) {
+      const idx = (y * sampleW + x) * 4;
       const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
-      if (a > 32) result.push({ x, y, color: `rgba(${r},${g},${b},${a / 255})` });
+      if (a > 32) {
+        const scaledX = Math.floor((x + 0.5) * scaleX);
+        const scaledY = Math.floor((y + 0.5) * scaleY);
+        result.push({
+          x: Math.min(canvasWidth - 1, scaledX),
+          y: Math.min(canvasHeight - 1, scaledY),
+          color: `rgba(${r},${g},${b},${a / 255})`
+        });
+      }
     }
   }
   return result;

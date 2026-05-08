@@ -18,6 +18,8 @@ import { runParticleAnimation } from './particleEngine.js';
 import { buildExplodeReformPlan, buildPullReformPlan } from './particlePlans.js';
 import { projectParticle, MIN_DEPTH_ALPHA, PULL_Z_RANGE } from './particleSampler.js';
 
+const PULL_READBACK_DOWNSAMPLE = 2;
+
 export function createTransitionKernel({ transitionCanvas, transitionCtx, heroContainer }) {
 
   // ─── Pull-preview state ───────────────────────────────────────────────────
@@ -122,21 +124,37 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
   function _samplePullParticles(surface, cw, ch) {
     if (!_pullOffscreen) _pullOffscreen = document.createElement('canvas');
     const c = _pullOffscreen;
-    c.width = cw; c.height = ch;
+    const sampleW = Math.max(1, Math.ceil(cw / PULL_READBACK_DOWNSAMPLE));
+    const sampleH = Math.max(1, Math.ceil(ch / PULL_READBACK_DOWNSAMPLE));
+    c.width = sampleW; c.height = sampleH;
     const cctx = c.getContext('2d');
-    cctx.clearRect(0, 0, cw, ch);
+    cctx.clearRect(0, 0, sampleW, sampleH);
     const dx = (cw - surface.width) / 2, dy = (ch - surface.height) / 2;
-    cctx.drawImage(surface.canvas, 0, 0, surface.width, surface.height, dx, dy, surface.width, surface.height);
-    const data = cctx.getImageData(0, 0, cw, ch).data;
+    cctx.drawImage(
+      surface.canvas,
+      0, 0, surface.width, surface.height,
+      dx / PULL_READBACK_DOWNSAMPLE,
+      dy / PULL_READBACK_DOWNSAMPLE,
+      surface.width / PULL_READBACK_DOWNSAMPLE,
+      surface.height / PULL_READBACK_DOWNSAMPLE
+    );
+    const data = cctx.getImageData(0, 0, sampleW, sampleH).data;
     const cx0 = cw / 2, cy0 = ch / 2;
     const result = [];
-    for (let y = 0; y < ch; y += SLINGSHOT_PARTICLE_SIZE) {
-      for (let x = 0; x < cw; x += SLINGSHOT_PARTICLE_SIZE) {
-        const idx = (y * cw + x) * 4;
+    const sampleStride = Math.max(1, Math.floor(SLINGSHOT_PARTICLE_SIZE / PULL_READBACK_DOWNSAMPLE));
+    const scaleX = cw / sampleW;
+    const scaleY = ch / sampleH;
+    for (let y = 0; y < sampleH; y += sampleStride) {
+      for (let x = 0; x < sampleW; x += sampleStride) {
+        const idx = (y * sampleW + x) * 4;
         if (data[idx + 3] > 32) {
+          const scaledX = Math.min(cw - 1, Math.floor((x + 0.5) * scaleX));
+          const scaledY = Math.min(ch - 1, Math.floor((y + 0.5) * scaleY));
           result.push({
-            x, y,
-            cx: x - cx0, cy: y - cy0,
+            x: scaledX,
+            y: scaledY,
+            cx: scaledX - cx0,
+            cy: scaledY - cy0,
             color: `rgba(${data[idx]},${data[idx + 1]},${data[idx + 2]},${(data[idx + 3] / 255).toFixed(2)})`,
             frayX: Math.random() * 2 - 1,
             frayY: Math.random() * 2 - 1,

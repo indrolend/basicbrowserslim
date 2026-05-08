@@ -13,6 +13,7 @@ function spaDebug(...args) {
 const HERO_CANVAS_WIDTH = 320;
 const HERO_CANVAS_HEIGHT = 320;
 const TEXT_RASTER_CANVAS_PADDING = 32;
+const CROP_SCAN_STEP = 2;
 
 function getSizedTextCanvas(textEl) {
   const rect = textEl.getBoundingClientRect();
@@ -223,19 +224,45 @@ function cropToContent(canvas, padding = 0) {
   const { width, height } = canvas;
   const imgData = ctx.getImageData(0, 0, width, height);
   const data = imgData.data;
+  const scanStep = CROP_SCAN_STEP;
   let minX = width, minY = height, maxX = 0, maxY = 0;
   let found = false;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      if (data[idx + 3] > 32) {
-        found = true;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+
+  function scanPoint(x, y) {
+    const idx = (y * width + x) * 4;
+    if (data[idx + 3] <= 32) return;
+    found = true;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
+  for (let y = 0; y < height; y += scanStep) {
+    for (let x = 0; x < width; x += scanStep) {
+      scanPoint(x, y);
     }
+  }
+
+  const coversLastCol = ((width - 1) % scanStep) === 0;
+  const coversLastRow = ((height - 1) % scanStep) === 0;
+
+  if (!coversLastCol) {
+    const edgeX = width - 1;
+    for (let y = 0; y < height; y += scanStep) {
+      scanPoint(edgeX, y);
+    }
+  }
+
+  if (!coversLastRow) {
+    const edgeY = height - 1;
+    for (let x = 0; x < width; x += scanStep) {
+      scanPoint(x, edgeY);
+    }
+  }
+
+  if (!coversLastCol && !coversLastRow) {
+    scanPoint(width - 1, height - 1);
   }
   if (!found) {
     return { canvas, offsetX: 0, offsetY: 0, width, height, hasVisibleContent: false };
