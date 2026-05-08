@@ -16,6 +16,7 @@ import { STAGE_PADDING_PX, REVEAL_HANDOFF_FADE_MS, SLINGSHOT_PARTICLE_SIZE, STRE
 import { waitRaf, waitMs } from './utils.js';
 import { runParticleAnimation } from './particleEngine.js';
 import { buildExplodeReformPlan, buildPullReformPlan } from './particlePlans.js';
+import { projectParticle, MIN_DEPTH_ALPHA, PULL_Z_RANGE } from './particleSampler.js';
 
 export function createTransitionKernel({ transitionCanvas, transitionCtx, heroContainer }) {
 
@@ -138,7 +139,8 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
             cx: x - cx0, cy: y - cy0,
             color: `rgba(${data[idx]},${data[idx + 1]},${data[idx + 2]},${(data[idx + 3] / 255).toFixed(2)})`,
             frayX: Math.random() * 2 - 1,
-            frayY: Math.random() * 2 - 1
+            frayY: Math.random() * 2 - 1,
+            z: 0
           });
         }
       }
@@ -190,7 +192,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
 
     const particles      = _pullParticlesBase;
     const drawnParticles = [];
-    transitionCtx.globalAlpha = Math.min(1, phaseB * 2);
+    const phaseAlpha     = Math.min(1, phaseB * 2);
 
     for (const p of particles) {
       const proj      = (p.cx * pnx + p.cy * pny) / (maxR * 0.5);
@@ -200,15 +202,42 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
       const trailY    = -pny * TRAIL_BIAS + p.frayY * (1 - TRAIL_BIAS);
       const nx = p.x + trailX * stretch;
       const ny = p.y + trailY * stretch;
-      drawnParticles.push({ x: nx, y: ny, color: p.color });
+      // Gentle z tilt based on fray gives a 3D peel-off sense during pull
+      const z  = p.frayX * pullNormalized * PULL_Z_RANGE;
+      const { px: projX, py: projY, scale } = projectParticle(nx, ny, z, cw / 2, ch / 2);
+      // Store projected coordinates so the reform animation starts from the visible position
+      drawnParticles.push({ x: projX, y: projY, color: p.color });
+      const scaleAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
+      transitionCtx.globalAlpha = phaseAlpha * scaleAlpha;
       transitionCtx.fillStyle = p.color;
       transitionCtx.beginPath();
-      transitionCtx.arc(nx, ny, SLINGSHOT_PARTICLE_SIZE / 2, 0, Math.PI * 2);
+      transitionCtx.arc(projX, projY, (SLINGSHOT_PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
       transitionCtx.fill();
     }
 
     transitionCtx.globalAlpha = 1;
     return { particles: drawnParticles, canvasW: cw, canvasH: ch };
+  }
+
+  function _buildAutoPullParticles(fromSurface, cw, ch, pullVector = { x: 1, y: 0 }) {
+    const base = _samplePullParticles(fromSurface, cw, ch);
+    if (!base.length) return null;
+
+    const len = Math.sqrt(pullVector.x * pullVector.x + pullVector.y * pullVector.y);
+    const pnx = len > 0 ? pullVector.x / len : 1;
+    const pny = len > 0 ? pullVector.y / len : 0;
+    const maxR = Math.min(cw, ch) * 0.5;
+    const cx0 = cw / 2;
+    const cy0 = ch / 2;
+    const stretch = STRETCH_MAX;
+
+    return base.map((p) => {
+      const radial = Math.min(1, Math.sqrt(p.cx * p.cx + p.cy * p.cy) / maxR);
+      const bias = TRAIL_BIAS + (1 - TRAIL_BIAS) * radial;
+      const mx = p.cx + (pnx * stretch * bias * 1.2);
+      const my = p.cy + (pny * stretch * bias * 1.2);
+      return { x: cx0 + mx, y: cy0 + my, color: p.color };
+    });
   }
 
   // ─── Slingshot release transition ─────────────────────────────────────────
@@ -220,8 +249,10 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
    * @param {{ pulledParticles: Array|null, pulledCanvasW: number, pulledCanvasH: number,
    *           fromSurface: Object, toSurface: Object, onBeforeReveal?: Function }} opts
    */
-  async function runSlingshotRelease({ pulledParticles, pulledCanvasW, pulledCanvasH, fromSurface, toSurface, onBeforeReveal }) {
+  async function runSlingshotRelease({ pulledParticles, pulledCanvasW, pulledCanvasH, fromSurface, toSurface, onBeforeReveal, autoPullVector }) {
     alignCanvas(fromSurface, toSurface);
+    hideHero();
+    showCanvas();
     const cw = transitionCanvas.width, ch = transitionCanvas.height;
 
     // Remap pull particles into the (possibly resized) canvas coordinate space.
@@ -231,8 +262,12 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
       remapped = pulledParticles.map(p => ({ x: p.x + shiftX, y: p.y + shiftY, color: p.color }));
     }
 
-    const plan = remapped
-      ? buildPullReformPlan(remapped, toSurface, cw, ch, null)
+    const syntheticPulled = (!remapped && fromSurface)
+      ? _buildAutoPullParticles(fromSurface, cw, ch, autoPullVector || { x: 1, y: 0 })
+      : null;
+
+    const plan = (remapped || syntheticPulled)
+      ? buildPullReformPlan(remapped || syntheticPulled, toSurface, cw, ch, null)
       : null;
 
     const finalPlan = plan || buildExplodeReformPlan(fromSurface, toSurface, cw, ch, 'default');

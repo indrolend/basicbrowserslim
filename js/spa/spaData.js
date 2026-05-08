@@ -31,6 +31,17 @@ export const SPA_SECTIONS = [
     items: [
       { id: 'asymptote', label: 'Asymptote Engine', hero: { kind: 'text', text: 'Asymptote Engine' } }
     ]
+  },
+  {
+    id: 'transitionLab', label: 'Transition Lab',
+    items: [
+      { id: 'labTextStart', label: 'T1 Text', hero: { kind: 'text', text: 'Transition Lab' } },
+      { id: 'labImageNormal', label: 'T2 Image', hero: { kind: 'image', src: 'assets/test-heroes/normal-image.png' } },
+      { id: 'labGifFull', label: 'T3 GIF Full', hero: { kind: 'image', src: 'assets/test-heroes/fullframe-icon.gif' } },
+      { id: 'labImageOffset', label: 'T4 Image Alpha', hero: { kind: 'image', src: 'assets/test-heroes/offset-alpha-bounds.png' } },
+      { id: 'labGifTransparent', label: 'T5 GIF Transparent', hero: { kind: 'image', src: 'assets/test-heroes/transparent-logo.gif' } },
+      { id: 'labTextEnd', label: 'T6 Text', hero: { kind: 'text', text: 'Done' } }
+    ]
   }
 ];
 

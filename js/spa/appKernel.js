@@ -54,6 +54,12 @@ export function createAppKernel({
     heroRenderer.renderHeroDOM(_si, _ii);
   }
 
+  function _inferAutoPullVector(nextSi, nextIi) {
+    if (nextSi === _si && nextIi === _ii) return { x: 1, y: 0 };
+    if (nextSi === _si) return { x: nextIi > _ii ? 1 : -1, y: 0 };
+    return { x: nextSi > _si ? 1 : -1, y: 0 };
+  }
+
   // ─── goTo ─────────────────────────────────────────────────────────────────
 
   async function goTo(nextSi, nextIi, navOpts = {}) {
@@ -76,8 +82,13 @@ export function createAppKernel({
 
     let didRenderDuringReveal = false;
     try {
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        ...navOpts,
+      await transitionKernel.runSlingshotRelease({
+        pulledParticles: null,
+        pulledCanvasW: 0,
+        pulledCanvasH: 0,
+        fromSurface: fromSurf,
+        toSurface: toSurf,
+        autoPullVector: _inferAutoPullVector(nextSi, nextIi),
         onBeforeReveal: async () => {
           _closeOverlayForNav();
           if (nextSi !== 0 && !_homeSectionLocked) _homeSectionLocked = true;
