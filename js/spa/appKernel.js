@@ -253,6 +253,8 @@ export function createAppKernel({
         onBeforeReveal: async () => {
           _si = to.sectionIdx;
           _ii = to.itemIdx;
+          navRenderer.updateSectionNav(_si, _homeSectionLocked);
+          navRenderer.updateItemDots(_si, _ii);
           gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
           window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }
