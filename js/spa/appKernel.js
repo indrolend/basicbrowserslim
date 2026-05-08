@@ -46,9 +46,14 @@ export function createAppKernel({
   function _isTransitioning() { return _phase !== 'idle'; }
   function _isPulling()       { return _phase === 'pulling'; }
 
+  function _computeUiState() {
+    if (_phase !== 'idle') return _phase;
+    return window.__SPA_Overlay?.isOpen?.() ? 'overlay' : 'idle';
+  }
+
   function _syncUiState() {
     const section = getSection(_si);
-    document.body.dataset.state = (window.__SPA_Overlay?.isOpen?.() && _phase === 'idle') ? 'overlay' : _phase;
+    document.body.dataset.state = _computeUiState();
     document.body.dataset.section = section?.id ?? '';
     document.body.dataset.item = String(_ii);
   }
