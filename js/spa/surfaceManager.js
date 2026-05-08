@@ -10,14 +10,14 @@
 // Does NOT own: particle sampling, canvas alignment, or transition lifecycle.
 //
 // Usage:
-//   const sm = createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning });
+//   const sm = createSurfaceManager({ heroContainer, rasterizeHero });
 //   sm.startTracking(si, ii);
 //   sm.stopTracking();
 //   const surface = await sm.buildSurface(si, ii, 'from');
 
 import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from './spaData.js';
 
-export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
+export function createSurfaceManager({ heroContainer, rasterizeHero }) {
   let _currentSurface    = null;
   let _currentKey        = null;
   let _trackingKey       = null;
@@ -43,23 +43,15 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       return;
     }
 
-    function primeWhenIdle() {
-      if (_trackingKey !== key) {
-        return;
-      }
+    _deferredPrimeFrameId = requestAnimationFrame(() => {
       _deferredPrimeFrameId = 0;
-      if (getIsTransitioning()) {
-        _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
-        return;
-      }
+      if (_trackingKey !== key) return;
       buildSurface(si, ii, 'from').then(s => {
         if (_trackingKey !== key) return;
         _currentSurface = s;
         _currentKey     = key;
       }).catch(() => {});
-    }
-
-    _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
+    });
   }
 
   function _buildRenderInput(si, ii, phase) {

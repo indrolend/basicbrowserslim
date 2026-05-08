@@ -223,10 +223,11 @@ function cropToContent(canvas, padding = 0) {
   const { width, height } = canvas;
   const imgData = ctx.getImageData(0, 0, width, height);
   const data = imgData.data;
+  const scanStep = 2;
   let minX = width, minY = height, maxX = 0, maxY = 0;
   let found = false;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  for (let y = 0; y < height; y += scanStep) {
+    for (let x = 0; x < width; x += scanStep) {
       const idx = (y * width + x) * 4;
       if (data[idx + 3] > 32) {
         found = true;
