@@ -140,7 +140,7 @@ export function createAppKernel({
     if (!overlay) return;
 
     const probe = overlay.buildProbe?.(overlayId, {}, { inline: true });
-    if (!probe) { overlay.open(overlayId); return; }
+    if (!probe) { overlay.open(overlayId); _syncUiState(); return; }
 
     _setPhase('transitioning');
     surfaceManager.stopTracking();
@@ -157,6 +157,7 @@ export function createAppKernel({
       _setPhase('idle');
       surfaceManager.startTracking(_si, _ii);
       overlay.open(overlayId);
+      _syncUiState();
       return;
     }
 
@@ -250,6 +251,8 @@ export function createAppKernel({
     try {
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => {
+          _si = to.sectionIdx;
+          _ii = to.itemIdx;
           gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
           window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }

@@ -94,6 +94,11 @@ function dispatchActionElement(el) {
   if (action === 'hero-action') {
     const clickAction = el.dataset.clickAction;
     if (clickAction) kernel.onHeroAction(clickAction);
+    return;
+  }
+
+  if (action === 'enter-game') {
+    void kernel.enterCurrentGameWithTransition();
   }
 }
 
