@@ -94,7 +94,10 @@ export function createAppKernel({
 
   async function _rasterizeProbeSurface(buildProbe) {
     const probe = buildProbe?.();
-    if (!probe) return null;
+    if (!probe?.element) {
+      probe?.cleanup?.();
+      return null;
+    }
     try {
       return await rasterizeHero({ type: 'textElement', element: probe.element });
     } catch (_) {
