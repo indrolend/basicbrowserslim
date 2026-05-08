@@ -126,17 +126,6 @@ window.addEventListener('keydown', (e) => {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
-const prevBtn = document.getElementById('spa-prev-btn');
-const nextBtn = document.getElementById('spa-next-btn');
-if (prevBtn) {
-  prevBtn.dataset.action = 'navigate';
-  prevBtn.dataset.direction = 'prev';
-}
-if (nextBtn) {
-  nextBtn.dataset.action = 'navigate';
-  nextBtn.dataset.direction = 'next';
-}
-
 kernel.render();
 
 const _initSection = getSection(0), _initItem = getItem(0, 0);
