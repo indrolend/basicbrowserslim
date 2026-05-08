@@ -6,7 +6,6 @@
 import { rasterizeHero }         from './js/spa/rasterizeHero.js';
 import { initSlingshot }         from './js/spa/slingshotGesture.js';
 import { getSection, getItem }   from './js/spa/spaData.js';
-import { createDesktopNavTracker } from './js/spa/navModel.js';
 import { createNavRenderer }     from './js/spa/renderNav.js';
 import { createHeroRenderer }    from './js/spa/renderHero.js';
 import { createSurfaceManager }  from './js/spa/surfaceManager.js';
@@ -21,8 +20,6 @@ const transitionCtx    = transitionCanvas.getContext('2d');
 const dotsContainer    = document.getElementById('spa-dots');
 
 // ─── Module instances ─────────────────────────────────────────────────────────
-
-const desktopNav = createDesktopNavTracker();
 
 // Forward reference: heroRenderer needs kernel.onHeroAction, wired below.
 let kernel;
@@ -53,8 +50,7 @@ kernel = createAppKernel({
   heroRenderer,
   navRenderer,
   rasterizeHero,
-  heroContainer,
-  desktopNav
+  heroContainer
 });
 
 // ─── Window API ───────────────────────────────────────────────────────────────

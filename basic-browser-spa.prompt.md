@@ -643,7 +643,7 @@ Internal `_samplePullParticles(surface, cw, ch)` → array of `{ x, y, cx, cy, c
 
 ## js/spa/appKernel.js  — ES module
 
-**Export:** `createAppKernel({ surfaceManager, transitionKernel, heroRenderer, navRenderer, rasterizeHero, heroContainer, desktopNav })` → kernel object
+**Export:** `createAppKernel({ surfaceManager, transitionKernel, heroRenderer, navRenderer, rasterizeHero, heroContainer })` → kernel object
 
 Owns all application state, navigation lifecycle, and slingshot callbacks.
 
@@ -738,7 +738,6 @@ Imports at top of file:
 import { rasterizeHero }          from './js/spa/rasterizeHero.js';
 import { initSlingshot }          from './js/spa/slingshotGesture.js';
 import { getSection, getItem }    from './js/spa/spaData.js';
-import { createDesktopNavTracker } from './js/spa/navModel.js';
 import { createNavRenderer }      from './js/spa/renderNav.js';
 import { createHeroRenderer }     from './js/spa/renderHero.js';
 import { createSurfaceManager }   from './js/spa/surfaceManager.js';
@@ -758,8 +757,6 @@ const dotsContainer    = document.getElementById('spa-dots');
 ### Module wiring
 
 ```js
-const desktopNav = createDesktopNavTracker();
-
 // Forward reference: heroRenderer needs kernel.onHeroAction, wired below.
 let kernel;
 
@@ -785,7 +782,7 @@ const transitionKernel = createTransitionKernel({
 
 kernel = createAppKernel({
   surfaceManager, transitionKernel, heroRenderer, navRenderer,
-  rasterizeHero, heroContainer, desktopNav
+  rasterizeHero, heroContainer
 });
 ```
 

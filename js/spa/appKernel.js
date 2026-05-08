@@ -14,7 +14,7 @@
 
 import { getSection, getItem, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
 import { getSafeExternalUrl } from './utils.js';
-import { getTargetForDirection } from './navModel.js';
+import { createDesktopNavTracker, getTargetForDirection } from './navModel.js';
 
 export function createAppKernel({
   surfaceManager,
@@ -22,9 +22,9 @@ export function createAppKernel({
   heroRenderer,
   navRenderer,
   rasterizeHero,
-  heroContainer,
-  desktopNav
+  heroContainer
 }) {
+  const desktopNav = createDesktopNavTracker();
 
   // ─── AppState ─────────────────────────────────────────────────────────────
 
