@@ -13,6 +13,7 @@ function spaDebug(...args) {
 const HERO_CANVAS_WIDTH = 320;
 const HERO_CANVAS_HEIGHT = 320;
 const TEXT_RASTER_CANVAS_PADDING = 32;
+const CROP_SCAN_STEP = 2;
 
 function getSizedTextCanvas(textEl) {
   const rect = textEl.getBoundingClientRect();
@@ -223,7 +224,7 @@ function cropToContent(canvas, padding = 0) {
   const { width, height } = canvas;
   const imgData = ctx.getImageData(0, 0, width, height);
   const data = imgData.data;
-  const scanStep = 2;
+  const scanStep = CROP_SCAN_STEP;
   let minX = width, minY = height, maxX = 0, maxY = 0;
   let found = false;
 
