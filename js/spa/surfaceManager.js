@@ -1,59 +1,62 @@
-// surfaceManager.js — hero surface rasterization, tracking, and caching
-//
-// Replaces heroSurface.js with an explicit contract name.
+// surfaceManager.js — hero surface rasterization and caching
 //
 // Owns:
-//   - Tracking the live hero surface via RAF (refreshed each frame while idle)
 //   - Building on-demand surfaces for 'from' and 'to' phases
-//   - Caching the most recent surface per hero key
+//   - Caching the most recent surface per hero key (seeded once on startTracking)
 //
 // Does NOT own: particle sampling, canvas alignment, or transition lifecycle.
 //
 // Usage:
-//   const sm = createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning });
+//   const sm = createSurfaceManager({ heroContainer, rasterizeHero });
 //   sm.startTracking(si, ii);
 //   sm.stopTracking();
 //   const surface = await sm.buildSurface(si, ii, 'from');
 
 import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from './spaData.js';
 
-export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
-  let _currentSurface    = null;
-  let _currentKey        = null;
-  let _frameId           = null;
-  let _trackingKey       = null;
+export function createSurfaceManager({ heroContainer, rasterizeHero }) {
+  let _currentSurface = null;
+  let _currentKey     = null;
+  let _pendingKey     = null;
+  let _pendingPromise = null;
 
+  /**
+   * Invalidate any pending background build so its result will be ignored when it resolves.
+   * The existing cache is retained for use by goTo.
+   */
   function stopTracking() {
-    if (_frameId) { cancelAnimationFrame(_frameId); _frameId = null; }
-    _trackingKey = null;
+    _pendingKey     = null;
+    _pendingPromise = null;
   }
 
+  /**
+   * Seed the surface cache for (si, ii).
+   * Clears any prior cached surface, then builds once asynchronously.
+   * No RAF loop: the cache is populated on demand and invalidated explicitly.
+   */
   function startTracking(si, ii) {
-    stopTracking();
-    const key = getHeroSurfaceKey(si, ii);
-    _trackingKey = key;
+    _pendingKey     = null;
+    _pendingPromise = null;
+    _currentSurface = null;
+    _currentKey     = null;
 
     // GIF and procedural heroes: no surface cache needed
     if (isGifHero(si, ii) || window.__SPA_Views?.[getSection(si)?.id]?.buildHeroProbe) {
-      _currentSurface = null;
-      _currentKey     = null;
       return;
     }
 
-    function refresh() {
-      buildSurface(si, ii, 'from').then(s => {
-        if (_trackingKey !== key) return;
-        _currentSurface = s;
-        _currentKey     = key;
-      }).catch(() => {});
-    }
-
-    function loop() {
-      if (_trackingKey !== key) return;
-      if (!getIsTransitioning()) refresh();
-      _frameId = requestAnimationFrame(loop);
-    }
-    _frameId = requestAnimationFrame(loop);
+    const key = getHeroSurfaceKey(si, ii);
+    _pendingKey     = key;
+    _pendingPromise = _rasterize(si, ii, 'from');
+    _pendingPromise.then(s => {
+      if (_pendingKey !== key) return;
+      _currentSurface = s;
+      _currentKey     = key;
+      _pendingKey     = null;
+      _pendingPromise = null;
+    }).catch(() => {
+      if (_pendingKey === key) { _pendingKey = null; _pendingPromise = null; }
+    });
   }
 
   function _buildRenderInput(si, ii, phase) {
@@ -101,10 +104,17 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
   }
 
   async function buildSurface(si, ii, phase) {
-    const key    = getHeroSurfaceKey(si, ii);
-    const cached = phase === 'from' && _currentSurface && _currentKey === key && !isGifHero(si, ii);
-    if (cached) return _currentSurface;
+    const key = getHeroSurfaceKey(si, ii);
+    if (phase === 'from' && !isGifHero(si, ii)) {
+      // Cache hit
+      if (_currentSurface && _currentKey === key) return _currentSurface;
+      // Reuse the in-flight seed promise to avoid a second rasterizeHero call
+      if (_pendingKey === key && _pendingPromise) return _pendingPromise;
+    }
+    return _rasterize(si, ii, phase);
+  }
 
+  async function _rasterize(si, ii, phase) {
     const input = _buildRenderInput(si, ii, phase);
     if (!input) return null;
     try {

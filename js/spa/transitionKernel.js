@@ -126,16 +126,26 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     cctx.clearRect(0, 0, cw, ch);
     const dx = (cw - surface.width) / 2, dy = (ch - surface.height) / 2;
     cctx.drawImage(surface.canvas, 0, 0, surface.width, surface.height, dx, dy, surface.width, surface.height);
-    const data = cctx.getImageData(0, 0, cw, ch).data;
+
+    // Only scan the drawn region — avoids getImageData on transparent padding.
+    // Use floor for the start and ceil for the end so sub-pixel offsets never clip edge pixels.
+    const scanX = Math.max(0, Math.floor(dx));
+    const scanY = Math.max(0, Math.floor(dy));
+    const scanW = Math.min(cw - scanX, Math.ceil(dx + surface.width)  - scanX);
+    const scanH = Math.min(ch - scanY, Math.ceil(dy + surface.height) - scanY);
+    if (scanW <= 0 || scanH <= 0) return [];
+
+    const data = cctx.getImageData(scanX, scanY, scanW, scanH).data;
     const cx0 = cw / 2, cy0 = ch / 2;
     const result = [];
-    for (let y = 0; y < ch; y += SLINGSHOT_PARTICLE_SIZE) {
-      for (let x = 0; x < cw; x += SLINGSHOT_PARTICLE_SIZE) {
-        const idx = (y * cw + x) * 4;
+    for (let row = 0; row < scanH; row += SLINGSHOT_PARTICLE_SIZE) {
+      for (let col = 0; col < scanW; col += SLINGSHOT_PARTICLE_SIZE) {
+        const idx = (row * scanW + col) * 4;
         if (data[idx + 3] > 32) {
+          const px = scanX + col, py = scanY + row;
           result.push({
-            x, y,
-            cx: x - cx0, cy: y - cy0,
+            x: px, y: py,
+            cx: px - cx0, cy: py - cy0,
             color: `rgba(${data[idx]},${data[idx + 1]},${data[idx + 2]},${(data[idx + 3] / 255).toFixed(2)})`,
             frayX: Math.random() * 2 - 1,
             frayY: Math.random() * 2 - 1

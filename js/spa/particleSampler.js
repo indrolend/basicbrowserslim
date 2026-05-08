@@ -28,13 +28,22 @@ export function sampleParticles(region, canvasWidth, canvasHeight) {
   const dy = (canvasHeight - region.height) / 2;
   cctx.clearRect(0, 0, canvasWidth, canvasHeight);
   cctx.drawImage(region.canvas, 0, 0, region.width, region.height, dx, dy, region.width, region.height);
-  const imgData = cctx.getImageData(0, 0, canvasWidth, canvasHeight).data;
+
+  // Only read back the region that was drawn — avoids getImageData on transparent edges.
+  // Use floor for the start and ceil for the end so sub-pixel offsets never clip edge pixels.
+  const scanX = Math.max(0, Math.floor(dx));
+  const scanY = Math.max(0, Math.floor(dy));
+  const scanW = Math.min(canvasWidth  - scanX, Math.ceil(dx + region.width)  - scanX);
+  const scanH = Math.min(canvasHeight - scanY, Math.ceil(dy + region.height) - scanY);
+  if (scanW <= 0 || scanH <= 0) return [];
+
+  const imgData = cctx.getImageData(scanX, scanY, scanW, scanH).data;
   const result  = [];
-  for (let y = 0; y < canvasHeight; y += PARTICLE_SIZE) {
-    for (let x = 0; x < canvasWidth; x += PARTICLE_SIZE) {
-      const idx = (y * canvasWidth + x) * 4;
+  for (let row = 0; row < scanH; row += PARTICLE_SIZE) {
+    for (let col = 0; col < scanW; col += PARTICLE_SIZE) {
+      const idx = (row * scanW + col) * 4;
       const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
-      if (a > 32) result.push({ x, y, color: `rgba(${r},${g},${b},${a / 255})` });
+      if (a > 32) result.push({ x: scanX + col, y: scanY + row, color: `rgba(${r},${g},${b},${a / 255})` });
     }
   }
   return result;
