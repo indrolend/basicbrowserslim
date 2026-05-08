@@ -1,11 +1,8 @@
-// surfaceManager.js — hero surface rasterization, tracking, and caching
-//
-// Replaces heroSurface.js with an explicit contract name.
+// surfaceManager.js — hero surface rasterization and caching
 //
 // Owns:
-//   - Tracking the live hero surface via RAF (refreshed each frame while idle)
 //   - Building on-demand surfaces for 'from' and 'to' phases
-//   - Caching the most recent surface per hero key
+//   - Caching the most recent surface per hero key (seeded once on startTracking)
 //
 // Does NOT own: particle sampling, canvas alignment, or transition lifecycle.
 //
@@ -18,42 +15,38 @@
 import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from './spaData.js';
 
 export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
-  let _currentSurface    = null;
-  let _currentKey        = null;
-  let _frameId           = null;
-  let _trackingKey       = null;
+  let _currentSurface = null;
+  let _currentKey     = null;
+  let _pendingKey     = null;
 
+  /** Cancel any in-flight background build; retain the existing cache for use by goTo. */
   function stopTracking() {
-    if (_frameId) { cancelAnimationFrame(_frameId); _frameId = null; }
-    _trackingKey = null;
+    _pendingKey = null;
   }
 
+  /**
+   * Seed the surface cache for (si, ii).
+   * Clears any prior cached surface, then builds once asynchronously.
+   * No RAF loop: the cache is populated on demand and invalidated explicitly.
+   */
   function startTracking(si, ii) {
-    stopTracking();
-    const key = getHeroSurfaceKey(si, ii);
-    _trackingKey = key;
+    _pendingKey     = null;
+    _currentSurface = null;
+    _currentKey     = null;
 
     // GIF and procedural heroes: no surface cache needed
     if (isGifHero(si, ii) || window.__SPA_Views?.[getSection(si)?.id]?.buildHeroProbe) {
-      _currentSurface = null;
-      _currentKey     = null;
       return;
     }
 
-    function refresh() {
-      buildSurface(si, ii, 'from').then(s => {
-        if (_trackingKey !== key) return;
-        _currentSurface = s;
-        _currentKey     = key;
-      }).catch(() => {});
-    }
-
-    function loop() {
-      if (_trackingKey !== key) return;
-      if (!getIsTransitioning()) refresh();
-      _frameId = requestAnimationFrame(loop);
-    }
-    _frameId = requestAnimationFrame(loop);
+    const key = getHeroSurfaceKey(si, ii);
+    _pendingKey = key;
+    buildSurface(si, ii, 'from').then(s => {
+      if (_pendingKey !== key) return;
+      _currentSurface = s;
+      _currentKey     = key;
+      _pendingKey     = null;
+    }).catch(() => { if (_pendingKey === key) _pendingKey = null; });
   }
 
   function _buildRenderInput(si, ii, phase) {
