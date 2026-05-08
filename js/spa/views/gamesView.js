@@ -17,11 +17,7 @@
       action.type = 'button';
       action.className = 'asy-hero-action';
       action.textContent = 'Play';
-      action.addEventListener('click', () => {
-        if (typeof window.__SPA_EnterCurrentGame === 'function') {
-          window.__SPA_EnterCurrentGame();
-        }
-      });
+      action.dataset.action = 'enter-game';
       el.appendChild(action);
       containerEl.appendChild(el);
     },

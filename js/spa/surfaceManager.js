@@ -3,7 +3,7 @@
 // Replaces heroSurface.js with an explicit contract name.
 //
 // Owns:
-//   - Tracking the live hero surface via RAF (refreshed each frame while idle)
+//   - One-shot tracking of the live hero surface when idle
 //   - Building on-demand surfaces for 'from' and 'to' phases
 //   - Caching the most recent surface per hero key
 //
@@ -20,11 +20,14 @@ import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from '
 export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
   let _currentSurface    = null;
   let _currentKey        = null;
-  let _frameId           = null;
   let _trackingKey       = null;
+  let _deferredPrimeFrameId = 0;
 
   function stopTracking() {
-    if (_frameId) { cancelAnimationFrame(_frameId); _frameId = null; }
+    if (_deferredPrimeFrameId) {
+      cancelAnimationFrame(_deferredPrimeFrameId);
+      _deferredPrimeFrameId = 0;
+    }
     _trackingKey = null;
   }
 
@@ -40,7 +43,15 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       return;
     }
 
-    function refresh() {
+    function primeWhenIdle() {
+      if (_trackingKey !== key) {
+        return;
+      }
+      _deferredPrimeFrameId = 0;
+      if (getIsTransitioning()) {
+        _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
+        return;
+      }
       buildSurface(si, ii, 'from').then(s => {
         if (_trackingKey !== key) return;
         _currentSurface = s;
@@ -48,12 +59,7 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       }).catch(() => {});
     }
 
-    function loop() {
-      if (_trackingKey !== key) return;
-      if (!getIsTransitioning()) refresh();
-      _frameId = requestAnimationFrame(loop);
-    }
-    _frameId = requestAnimationFrame(loop);
+    _deferredPrimeFrameId = requestAnimationFrame(primeWhenIdle);
   }
 
   function _buildRenderInput(si, ii, phase) {

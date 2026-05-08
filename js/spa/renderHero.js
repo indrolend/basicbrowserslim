@@ -1,15 +1,14 @@
 // renderHero.js — hero DOM rendering and click-action wiring
 //
 // Usage:
-//   const hero = createHeroRenderer({ heroContainer, onAction });
+//   const hero = createHeroRenderer({ heroContainer });
 //   hero.renderHeroDOM(sectionIdx, itemIdx);
 
 import { getSection, getItem, getHeroSpec, getClickAction } from './spaData.js';
-import { addActivationHandler } from './utils.js';
 
 let _gifRestartSeq = 0;
 
-export function createHeroRenderer({ heroContainer, onAction }) {
+export function createHeroRenderer({ heroContainer }) {
 
   function _isGifSrc(src) {
     return /\.gif(?:[?#]|$)/i.test(src || '');
@@ -54,10 +53,8 @@ export function createHeroRenderer({ heroContainer, onAction }) {
       wrapper.classList.add('spa-hero--linkable');
       wrapper.setAttribute('role', 'link');
       wrapper.setAttribute('tabindex', '0');
-      wrapper.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAction(clickAction); }
-      });
-      addActivationHandler(wrapper, () => onAction(clickAction));
+      wrapper.dataset.action = 'hero-action';
+      wrapper.dataset.clickAction = clickAction;
     }
 
     if (heroSpec.kind === 'image') {

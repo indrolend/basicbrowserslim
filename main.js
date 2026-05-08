@@ -6,7 +6,6 @@
 import { rasterizeHero }         from './js/spa/rasterizeHero.js';
 import { initSlingshot }         from './js/spa/slingshotGesture.js';
 import { getSection, getItem }   from './js/spa/spaData.js';
-import { createDesktopNavTracker } from './js/spa/navModel.js';
 import { createNavRenderer }     from './js/spa/renderNav.js';
 import { createHeroRenderer }    from './js/spa/renderHero.js';
 import { createSurfaceManager }  from './js/spa/surfaceManager.js';
@@ -22,19 +21,14 @@ const dotsContainer    = document.getElementById('spa-dots');
 
 // ─── Module instances ─────────────────────────────────────────────────────────
 
-const desktopNav = createDesktopNavTracker();
-
-// Forward reference: heroRenderer needs kernel.onHeroAction, wired below.
 let kernel;
 
 const heroRenderer = createHeroRenderer({
-  heroContainer,
-  onAction: (action) => kernel.onHeroAction(action)
+  heroContainer
 });
 
 const navRenderer = createNavRenderer({
-  dotsContainer,
-  onNav: (si, ii) => kernel.goTo(si, ii)
+  dotsContainer
 });
 
 const surfaceManager = createSurfaceManager({
@@ -53,8 +47,7 @@ kernel = createAppKernel({
   heroRenderer,
   navRenderer,
   rasterizeHero,
-  heroContainer,
-  desktopNav
+  heroContainer
 });
 
 // ─── Window API ───────────────────────────────────────────────────────────────
@@ -69,21 +62,67 @@ window.__SPA_CancelSlingshot                   = () => kernel.cancelSlingshot();
 
 // ─── Keyboard navigation ──────────────────────────────────────────────────────
 
-window.addEventListener('keydown', (e) => {
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
-  e.preventDefault();
-  const direction = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev';
-  kernel.navigate(direction, desktopNav.getNavOptions());
+function safeParseInt(value) {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function dispatchActionElement(el) {
+  if (!el || el.hasAttribute?.('disabled') || el.disabled === true) return;
+  const action = el.dataset.action;
+  if (!action) return;
+
+  if (action === 'navigate') {
+    const direction = el.dataset.direction;
+    if (direction === 'prev' || direction === 'next') kernel.navigate(direction);
+    return;
+  }
+
+  if (action === 'goto-section') {
+    const sectionIdx = safeParseInt(el.dataset.sectionIdx);
+    if (sectionIdx !== null) void kernel.goTo(sectionIdx, 0);
+    return;
+  }
+
+  if (action === 'goto-item') {
+    const sectionIdx = safeParseInt(el.dataset.sectionIdx);
+    const itemIdx = safeParseInt(el.dataset.itemIdx);
+    if (sectionIdx !== null && itemIdx !== null) void kernel.goTo(sectionIdx, itemIdx);
+    return;
+  }
+
+  if (action === 'hero-action') {
+    const clickAction = el.dataset.clickAction;
+    if (typeof clickAction === 'string' && clickAction.length > 0) kernel.onHeroAction(clickAction);
+    return;
+  }
+
+  if (action === 'enter-game') {
+    void kernel.enterCurrentGameWithTransition();
+  }
+}
+
+document.addEventListener('click', (e) => {
+  if (typeof e.button === 'number' && e.button !== 0) return;
+  if (e.defaultPrevented) return;
+  const target = e.target?.closest?.('[data-action]');
+  if (!target) return;
+  dispatchActionElement(target);
 });
 
-// ─── Item nav buttons ─────────────────────────────────────────────────────────
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    kernel.navigate((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev');
+    return;
+  }
 
-navRenderer.setupItemNav(
-  document.getElementById('spa-prev-btn'),
-  document.getElementById('spa-next-btn'),
-  () => kernel.navigate('prev', desktopNav.getNavOptions()),
-  () => kernel.navigate('next', desktopNav.getNavOptions())
-);
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const active = document.activeElement;
+  if (!active?.matches?.('[data-action]')) return;
+  e.preventDefault();
+  dispatchActionElement(active);
+});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 

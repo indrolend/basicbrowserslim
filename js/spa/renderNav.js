@@ -1,15 +1,13 @@
 // renderNav.js — section nav and item-dot DOM rendering
 //
 // Usage:
-//   const nav = createNavRenderer({ dotsContainer, addActivationHandler, onNav });
+//   const nav = createNavRenderer({ dotsContainer });
 //   nav.updateSectionNav(sectionIdx, homeSectionLocked);
 //   nav.updateItemDots(sectionIdx, itemIdx);
-//   nav.setupItemNav(prevBtn, nextBtn, onPrev, onNext);
 
 import { SPA_SECTIONS, getSection } from './spaData.js';
-import { addActivationHandler } from './utils.js';
 
-export function createNavRenderer({ dotsContainer, onNav }) {
+export function createNavRenderer({ dotsContainer }) {
 
   function updateSectionNav(si, homeSectionLocked) {
     let nav = document.getElementById('spa-section-nav');
@@ -34,7 +32,8 @@ export function createNavRenderer({ dotsContainer, onNav }) {
         btn.style.background = '#333';
         btn.setAttribute('aria-current', 'page');
       }
-      addActivationHandler(btn, () => onNav(idx, 0));
+      btn.dataset.action = 'goto-section';
+      btn.dataset.sectionIdx = String(idx);
       nav.appendChild(btn);
     }
   }
@@ -50,15 +49,12 @@ export function createNavRenderer({ dotsContainer, onNav }) {
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-label', item.label);
       btn.setAttribute('aria-selected', idx === ii ? 'true' : 'false');
-      addActivationHandler(btn, () => onNav(si, idx));
+      btn.dataset.action = 'goto-item';
+      btn.dataset.sectionIdx = String(si);
+      btn.dataset.itemIdx = String(idx);
       dotsContainer.appendChild(btn);
     });
   }
 
-  function setupItemNav(prevBtn, nextBtn, onPrev, onNext) {
-    if (prevBtn) addActivationHandler(prevBtn, onPrev);
-    if (nextBtn) addActivationHandler(nextBtn, onNext);
-  }
-
-  return { updateSectionNav, updateItemDots, setupItemNav };
+  return { updateSectionNav, updateItemDots };
 }
