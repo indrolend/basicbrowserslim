@@ -39,8 +39,7 @@ const navRenderer = createNavRenderer({
 
 const surfaceManager = createSurfaceManager({
   heroContainer,
-  rasterizeHero,
-  getIsTransitioning: () => kernel.isTransitioning()
+  rasterizeHero
 });
 
 const transitionKernel = createTransitionKernel({

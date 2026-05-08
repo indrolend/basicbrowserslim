@@ -30,10 +30,11 @@ export function sampleParticles(region, canvasWidth, canvasHeight) {
   cctx.drawImage(region.canvas, 0, 0, region.width, region.height, dx, dy, region.width, region.height);
 
   // Only read back the region that was drawn — avoids getImageData on transparent edges.
-  const scanX = Math.max(0, Math.round(dx));
-  const scanY = Math.max(0, Math.round(dy));
-  const scanW = Math.min(region.width,  canvasWidth  - scanX);
-  const scanH = Math.min(region.height, canvasHeight - scanY);
+  // Use floor for the start and ceil for the end so sub-pixel offsets never clip edge pixels.
+  const scanX = Math.max(0, Math.floor(dx));
+  const scanY = Math.max(0, Math.floor(dy));
+  const scanW = Math.min(canvasWidth  - scanX, Math.ceil(dx + region.width)  - scanX);
+  const scanH = Math.min(canvasHeight - scanY, Math.ceil(dy + region.height) - scanY);
   if (scanW <= 0 || scanH <= 0) return [];
 
   const imgData = cctx.getImageData(scanX, scanY, scanW, scanH).data;

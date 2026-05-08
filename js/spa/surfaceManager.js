@@ -7,21 +7,26 @@
 // Does NOT own: particle sampling, canvas alignment, or transition lifecycle.
 //
 // Usage:
-//   const sm = createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning });
+//   const sm = createSurfaceManager({ heroContainer, rasterizeHero });
 //   sm.startTracking(si, ii);
 //   sm.stopTracking();
 //   const surface = await sm.buildSurface(si, ii, 'from');
 
 import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from './spaData.js';
 
-export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransitioning }) {
+export function createSurfaceManager({ heroContainer, rasterizeHero }) {
   let _currentSurface = null;
   let _currentKey     = null;
   let _pendingKey     = null;
+  let _pendingPromise = null;
 
-  /** Cancel any in-flight background build; retain the existing cache for use by goTo. */
+  /**
+   * Invalidate any pending background build so its result will be ignored when it resolves.
+   * The existing cache is retained for use by goTo.
+   */
   function stopTracking() {
-    _pendingKey = null;
+    _pendingKey     = null;
+    _pendingPromise = null;
   }
 
   /**
@@ -31,6 +36,7 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
    */
   function startTracking(si, ii) {
     _pendingKey     = null;
+    _pendingPromise = null;
     _currentSurface = null;
     _currentKey     = null;
 
@@ -40,13 +46,17 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
     }
 
     const key = getHeroSurfaceKey(si, ii);
-    _pendingKey = key;
-    buildSurface(si, ii, 'from').then(s => {
+    _pendingKey     = key;
+    _pendingPromise = _rasterize(si, ii, 'from');
+    _pendingPromise.then(s => {
       if (_pendingKey !== key) return;
       _currentSurface = s;
       _currentKey     = key;
       _pendingKey     = null;
-    }).catch(() => { if (_pendingKey === key) _pendingKey = null; });
+      _pendingPromise = null;
+    }).catch(() => {
+      if (_pendingKey === key) { _pendingKey = null; _pendingPromise = null; }
+    });
   }
 
   function _buildRenderInput(si, ii, phase) {
@@ -94,10 +104,17 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
   }
 
   async function buildSurface(si, ii, phase) {
-    const key    = getHeroSurfaceKey(si, ii);
-    const cached = phase === 'from' && _currentSurface && _currentKey === key && !isGifHero(si, ii);
-    if (cached) return _currentSurface;
+    const key = getHeroSurfaceKey(si, ii);
+    if (phase === 'from' && !isGifHero(si, ii)) {
+      // Cache hit
+      if (_currentSurface && _currentKey === key) return _currentSurface;
+      // Reuse the in-flight seed promise to avoid a second rasterizeHero call
+      if (_pendingKey === key && _pendingPromise) return _pendingPromise;
+    }
+    return _rasterize(si, ii, phase);
+  }
 
+  async function _rasterize(si, ii, phase) {
     const input = _buildRenderInput(si, ii, phase);
     if (!input) return null;
     try {

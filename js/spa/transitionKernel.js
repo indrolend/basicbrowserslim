@@ -128,10 +128,11 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     cctx.drawImage(surface.canvas, 0, 0, surface.width, surface.height, dx, dy, surface.width, surface.height);
 
     // Only scan the drawn region — avoids getImageData on transparent padding.
-    const scanX = Math.max(0, Math.round(dx));
-    const scanY = Math.max(0, Math.round(dy));
-    const scanW = Math.min(surface.width,  cw - scanX);
-    const scanH = Math.min(surface.height, ch - scanY);
+    // Use floor for the start and ceil for the end so sub-pixel offsets never clip edge pixels.
+    const scanX = Math.max(0, Math.floor(dx));
+    const scanY = Math.max(0, Math.floor(dy));
+    const scanW = Math.min(cw - scanX, Math.ceil(dx + surface.width)  - scanX);
+    const scanH = Math.min(ch - scanY, Math.ceil(dy + surface.height) - scanY);
     if (scanW <= 0 || scanH <= 0) return [];
 
     const data = cctx.getImageData(scanX, scanY, scanW, scanH).data;
