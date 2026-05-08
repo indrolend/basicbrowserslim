@@ -21,17 +21,14 @@ const dotsContainer    = document.getElementById('spa-dots');
 
 // ─── Module instances ─────────────────────────────────────────────────────────
 
-// Forward reference: heroRenderer needs kernel.onHeroAction, wired below.
 let kernel;
 
 const heroRenderer = createHeroRenderer({
-  heroContainer,
-  onAction: (action) => kernel.onHeroAction(action)
+  heroContainer
 });
 
 const navRenderer = createNavRenderer({
-  dotsContainer,
-  onNav: (si, ii) => kernel.goTo(si, ii)
+  dotsContainer
 });
 
 const surfaceManager = createSurfaceManager({
@@ -65,23 +62,73 @@ window.__SPA_CancelSlingshot                   = () => kernel.cancelSlingshot();
 
 // ─── Keyboard navigation ──────────────────────────────────────────────────────
 
-window.addEventListener('keydown', (e) => {
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
-  e.preventDefault();
-  const direction = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev';
-  kernel.navigate(direction);
+function parseIntData(value) {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function dispatchActionElement(el) {
+  if (!el || el.disabled) return;
+  const action = el.dataset.action;
+  if (!action) return;
+
+  if (action === 'navigate') {
+    const direction = el.dataset.direction;
+    if (direction === 'prev' || direction === 'next') kernel.navigate(direction);
+    return;
+  }
+
+  if (action === 'goto-section') {
+    const sectionIdx = parseIntData(el.dataset.sectionIdx);
+    if (sectionIdx !== null) void kernel.goTo(sectionIdx, 0);
+    return;
+  }
+
+  if (action === 'goto-item') {
+    const sectionIdx = parseIntData(el.dataset.sectionIdx);
+    const itemIdx = parseIntData(el.dataset.itemIdx);
+    if (sectionIdx !== null && itemIdx !== null) void kernel.goTo(sectionIdx, itemIdx);
+    return;
+  }
+
+  if (action === 'hero-action') {
+    const clickAction = el.dataset.clickAction;
+    if (clickAction) kernel.onHeroAction(clickAction);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const target = e.target?.closest?.('[data-action]');
+  if (!target) return;
+  dispatchActionElement(target);
 });
 
-// ─── Item nav buttons ─────────────────────────────────────────────────────────
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    kernel.navigate((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev');
+    return;
+  }
 
-navRenderer.setupItemNav(
-  document.getElementById('spa-prev-btn'),
-  document.getElementById('spa-next-btn'),
-  () => kernel.navigate('prev'),
-  () => kernel.navigate('next')
-);
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const active = document.activeElement;
+  if (!active?.matches?.('[data-action]')) return;
+  e.preventDefault();
+  dispatchActionElement(active);
+});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+
+const prevBtn = document.getElementById('spa-prev-btn');
+const nextBtn = document.getElementById('spa-next-btn');
+if (prevBtn) {
+  prevBtn.dataset.action = 'navigate';
+  prevBtn.dataset.direction = 'prev';
+}
+if (nextBtn) {
+  nextBtn.dataset.action = 'navigate';
+  nextBtn.dataset.direction = 'next';
+}
 
 kernel.render();
 

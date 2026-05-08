@@ -1,6 +1,6 @@
-// navModel.js — navigation target computation and desktop timing tracker
+// navModel.js — navigation target computation
 
-import { SPA_SECTIONS, DESKTOP_CHAIN_WINDOW_MS, getSection } from './spaData.js';
+import { SPA_SECTIONS, getSection } from './spaData.js';
 
 export function getAvailableSections(homeSectionLocked) {
   return homeSectionLocked ? SPA_SECTIONS.filter((_, i) => i !== 0) : SPA_SECTIONS;
@@ -32,17 +32,4 @@ export function getTargetForDirection(direction, si, ii, homeSectionLocked) {
   return direction === 'next'
     ? getNextTarget(si, ii, homeSectionLocked)
     : getPrevTarget(si, ii, homeSectionLocked);
-}
-
-// Returns an object whose getNavOptions() tracks chained desktop nav timing.
-export function createDesktopNavTracker() {
-  let lastInputAt = 0;
-  return {
-    getNavOptions() {
-      const now     = performance.now();
-      const chained = (now - lastInputAt) < DESKTOP_CHAIN_WINDOW_MS;
-      lastInputAt   = now;
-      return { timingProfile: chained ? 'chained' : 'default' };
-    }
-  };
 }

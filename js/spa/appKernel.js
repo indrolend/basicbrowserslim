@@ -14,7 +14,7 @@
 
 import { getSection, getItem, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
 import { getSafeExternalUrl } from './utils.js';
-import { createDesktopNavTracker, getTargetForDirection } from './navModel.js';
+import { getTargetForDirection } from './navModel.js';
 
 export function createAppKernel({
   surfaceManager,
@@ -24,8 +24,6 @@ export function createAppKernel({
   rasterizeHero,
   heroContainer
 }) {
-  const desktopNav = createDesktopNavTracker();
-
   // ─── AppState ─────────────────────────────────────────────────────────────
 
   let _si = 0, _ii = 0;
@@ -48,10 +46,23 @@ export function createAppKernel({
   function _isTransitioning() { return _phase !== 'idle'; }
   function _isPulling()       { return _phase === 'pulling'; }
 
+  function _syncUiState() {
+    const section = getSection(_si);
+    document.body.dataset.state = (window.__SPA_Overlay?.isOpen?.() && _phase === 'idle') ? 'overlay' : _phase;
+    document.body.dataset.section = section?.id ?? '';
+    document.body.dataset.item = String(_ii);
+  }
+
+  function _setPhase(nextPhase) {
+    _phase = nextPhase;
+    _syncUiState();
+  }
+
   function _render() {
     navRenderer.updateSectionNav(_si, _homeSectionLocked);
     navRenderer.updateItemDots(_si, _ii);
     heroRenderer.renderHeroDOM(_si, _ii);
+    _syncUiState();
   }
 
   function _inferAutoPullVector(nextSi, nextIi) {
@@ -71,7 +82,7 @@ export function createAppKernel({
     }
 
     const fromSi = _si, fromIi = _ii;
-    _phase = 'transitioning';
+    _setPhase('transitioning');
     surfaceManager.stopTracking();
 
     const outSection = getSection(fromSi), outItem = getItem(fromSi, fromIi);
@@ -105,7 +116,7 @@ export function createAppKernel({
       if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
 
       if (!didRenderDuringReveal) _render();
-      _phase = 'idle';
+      _setPhase('idle');
       surfaceManager.startTracking(_si, _ii);
       _drainQueue();
     }
@@ -125,7 +136,7 @@ export function createAppKernel({
     const probe = overlay.buildProbe?.(overlayId, {}, { inline: true });
     if (!probe) { overlay.open(overlayId); return; }
 
-    _phase = 'transitioning';
+    _setPhase('transitioning');
     surfaceManager.stopTracking();
 
     let fromSurf, toSurf;
@@ -137,7 +148,7 @@ export function createAppKernel({
       ]);
     } catch (_) {
       probe.cleanup?.();
-      _phase = 'idle';
+      _setPhase('idle');
       surfaceManager.startTracking(_si, _ii);
       overlay.open(overlayId);
       return;
@@ -147,14 +158,14 @@ export function createAppKernel({
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => { probe.cleanup?.(); overlay.openInline(overlayId, {}, heroContainer); }
       });
-    } finally { _phase = 'idle'; }
+    } finally { _setPhase('idle'); }
   }
 
   async function closeOverlayWithTransition() {
     const overlay = window.__SPA_Overlay;
     if (!overlay?.isOpen() || _isTransitioning() || _isPulling()) return;
 
-    _phase = 'transitioning';
+    _setPhase('transitioning');
     let fromSurf, toSurf;
     try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
 
@@ -162,7 +173,7 @@ export function createAppKernel({
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => { overlay.close({ restore: false }); heroRenderer.renderHeroDOM(_si, _ii); }
       });
-    } finally { _phase = 'idle'; surfaceManager.startTracking(_si, _ii); }
+    } finally { _setPhase('idle'); surfaceManager.startTracking(_si, _ii); }
   }
 
   // ─── Game mode lifecycle ──────────────────────────────────────────────────
@@ -174,13 +185,13 @@ export function createAppKernel({
     const probe = gameNav.buildHeroProbe?.(_si, _ii);
     if (!probe) return;
 
-    _phase = 'transitioning';
+    _setPhase('transitioning');
     surfaceManager.stopTracking();
     document.body.appendChild(probe.element);
 
     let fromSurf, toSurf;
     try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), rasterizeHero({ type: 'textElement', element: probe.element })]); }
-    catch (_) { probe.cleanup?.(); _phase = 'idle'; return; }
+    catch (_) { probe.cleanup?.(); _setPhase('idle'); return; }
     probe.cleanup?.();
 
     try {
@@ -190,12 +201,12 @@ export function createAppKernel({
           window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }
       });
-    } finally { _phase = 'idle'; }
+    } finally { _setPhase('idle'); }
   }
 
   async function exitGameToCurrentItem() {
     if (_isTransitioning() || _isPulling()) return;
-    _phase = 'transitioning';
+    _setPhase('transitioning');
     let fromSurf, toSurf;
     try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
 
@@ -203,7 +214,7 @@ export function createAppKernel({
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => { _isGameActive = false; heroRenderer.renderHeroDOM(_si, _ii); }
       });
-    } finally { _phase = 'idle'; surfaceManager.startTracking(_si, _ii); }
+    } finally { _setPhase('idle'); surfaceManager.startTracking(_si, _ii); }
   }
 
   async function gameNavigate(direction) {
@@ -217,7 +228,7 @@ export function createAppKernel({
     const toProbe   = gameNav.buildHeroProbe?.(to.sectionIdx,   to.itemIdx);
     if (!fromProbe || !toProbe) { fromProbe?.cleanup?.(); toProbe?.cleanup?.(); return; }
 
-    _phase = 'transitioning';
+    _setPhase('transitioning');
     document.body.appendChild(fromProbe.element);
     document.body.appendChild(toProbe.element);
 
@@ -227,18 +238,17 @@ export function createAppKernel({
         rasterizeHero({ type: 'textElement', element: fromProbe.element }),
         rasterizeHero({ type: 'textElement', element: toProbe.element })
       ]);
-    } catch (_) { fromProbe.cleanup?.(); toProbe.cleanup?.(); _phase = 'idle'; return; }
+    } catch (_) { fromProbe.cleanup?.(); toProbe.cleanup?.(); _setPhase('idle'); return; }
     fromProbe.cleanup?.(); toProbe.cleanup?.();
 
     try {
       await transitionKernel.runTransition(fromSurf, toSurf, {
-        ...desktopNav.getNavOptions(),
         onBeforeReveal: async () => {
           gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
           window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }
       });
-    } finally { _phase = 'idle'; }
+    } finally { _setPhase('idle'); }
   }
 
   // ─── Slingshot callbacks ──────────────────────────────────────────────────
@@ -272,7 +282,7 @@ export function createAppKernel({
 
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
-    _phase = 'pulling';
+    _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
 
@@ -358,7 +368,7 @@ export function createAppKernel({
   }
 
   function _cleanupPull() {
-    _phase = 'idle';
+    _setPhase('idle');
     _pullTargetSi = null; _pullTargetIi = null;
     _pullFromSurface = null; _pullToSurface = null;
     _pullFromPromise = null; _pullToPromise = null;
@@ -418,7 +428,7 @@ export function createAppKernel({
     enterCurrentGameWithTransition,
     exitGameToCurrentItem,
     gameNavigate,
-    setGameActive(active) { _isGameActive = !!active; },
+    setGameActive(active) { _isGameActive = !!active; _syncUiState(); },
     // State accessors
     getSi() { return _si; },
     getIi() { return _ii; },
@@ -431,6 +441,7 @@ export function createAppKernel({
     restoreCurrentItemHero() {
       heroRenderer.renderHeroDOM(_si, _ii);
       surfaceManager.startTracking(_si, _ii);
+      _syncUiState();
     }
   };
 }

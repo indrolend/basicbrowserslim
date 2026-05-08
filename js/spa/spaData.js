@@ -50,7 +50,6 @@ export const SPA_SECTIONS = [
 export const STAGE_PADDING_PX        = 72;
 export const SLINGSHOT_MIN_RELEASE   = 0.15;
 export const REVEAL_HANDOFF_FADE_MS  = 70;
-export const DESKTOP_CHAIN_WINDOW_MS = 260;
 export const STRETCH_MAX             = 55;
 export const TRAIL_BIAS              = 0.55;
 export const SLINGSHOT_PARTICLE_SIZE = 4;
