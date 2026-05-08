@@ -71,6 +71,39 @@ export function createAppKernel({
     _syncUiState();
   }
 
+  function _renderTarget(si, ii) {
+    heroRenderer.renderHeroDOM(si, ii);
+    navRenderer.updateSectionNav(si, _homeSectionLocked);
+    navRenderer.updateItemDots(si, ii);
+  }
+
+  function _notifyView(si, ii, hookName) {
+    const section = getSection(si);
+    const item = getItem(si, ii);
+    if (section && item) try { window.__SPA_Views?.[section.id]?.[hookName]?.(item.id); } catch (_) {}
+  }
+
+  async function _buildSurfacePair(fromSurfacePromise, toSurfacePromise) {
+    try {
+      const [fromSurface, toSurface] = await Promise.all([fromSurfacePromise, toSurfacePromise]);
+      return { fromSurface, toSurface };
+    } catch (_) {
+      return { fromSurface: null, toSurface: null };
+    }
+  }
+
+  async function _rasterizeProbeSurface(buildProbe) {
+    const probe = buildProbe?.();
+    if (!probe) return null;
+    try {
+      return await rasterizeHero({ type: 'textElement', element: probe.element });
+    } catch (_) {
+      return null;
+    } finally {
+      probe.cleanup?.();
+    }
+  }
+
   function _inferAutoPullVector(nextSi, nextIi) {
     if (nextSi === _si && nextIi === _ii) return { x: 1, y: 0 };
     if (nextSi === _si) return { x: nextIi > _ii ? 1 : -1, y: 0 };
@@ -106,11 +139,12 @@ export function createAppKernel({
 
     await _withTransition(async () => {
       const fromSi = _si, fromIi = _ii;
-      const outSection = getSection(fromSi), outItem = getItem(fromSi, fromIi);
-      if (outSection && outItem) try { window.__SPA_Views?.[outSection.id]?.onDeactivate?.(outItem.id); } catch (_) {}
+      _notifyView(fromSi, fromIi, 'onDeactivate');
 
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(fromSi, fromIi, 'from'), surfaceManager.buildSurface(nextSi, nextIi, 'to')]); } catch (_) {}
+      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
+        surfaceManager.buildSurface(fromSi, fromIi, 'from'),
+        surfaceManager.buildSurface(nextSi, nextIi, 'to')
+      );
 
       let didRenderDuringReveal = false;
       try {
@@ -124,17 +158,13 @@ export function createAppKernel({
           onBeforeReveal: async () => {
             _closeOverlayForNav();
             if (nextSi !== 0 && !_homeSectionLocked) _homeSectionLocked = true;
-            heroRenderer.renderHeroDOM(nextSi, nextIi);
-            navRenderer.updateSectionNav(nextSi, _homeSectionLocked);
-            navRenderer.updateItemDots(nextSi, nextIi);
+            _renderTarget(nextSi, nextIi);
             didRenderDuringReveal = true;
           }
         });
       } finally {
         _si = nextSi; _ii = nextIi;
-
-        const inSection = getSection(nextSi), inItem = getItem(nextSi, nextIi);
-        if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
+        _notifyView(nextSi, nextIi, 'onActivate');
 
         if (!didRenderDuringReveal) _render();
       }
@@ -152,19 +182,13 @@ export function createAppKernel({
     const overlay = window.__SPA_Overlay;
     if (!overlay) return;
 
-    const probe = overlay.buildProbe?.(overlayId, {}, { inline: true });
-    if (!probe) { overlay.open(overlayId); _syncUiState(); return; }
-
     await _withTransition(async () => {
-      let fromSurf, toSurf;
-      try {
-        document.body.appendChild(probe.element);
-        [fromSurf, toSurf] = await Promise.all([
-          surfaceManager.buildSurface(_si, _ii, 'from'),
-          rasterizeHero({ type: 'textElement', element: probe.element })
-        ]);
-      } catch (_) {
-        probe.cleanup?.();
+      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
+        surfaceManager.buildSurface(_si, _ii, 'from'),
+        _rasterizeProbeSurface(() => overlay.buildProbe?.(overlayId, {}, { inline: true }))
+      );
+
+      if (!toSurf) {
         surfaceManager.startTracking(_si, _ii);
         overlay.open(overlayId);
         _syncUiState();
@@ -172,7 +196,7 @@ export function createAppKernel({
       }
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { probe.cleanup?.(); overlay.openInline(overlayId, {}, heroContainer); }
+        onBeforeReveal: async () => { overlay.openInline(overlayId, {}, heroContainer); }
       });
     }, { stopTracking: true });
   }
@@ -182,8 +206,10 @@ export function createAppKernel({
     if (!overlay?.isOpen() || _isTransitioning() || _isPulling()) return;
 
     await _withTransition(async () => {
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
+      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
+        surfaceManager.buildSurface(_si, _ii, 'from'),
+        surfaceManager.buildSurface(_si, _ii, 'to')
+      );
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => { overlay.close({ restore: false }); heroRenderer.renderHeroDOM(_si, _ii); }
@@ -197,16 +223,13 @@ export function createAppKernel({
     if (_isTransitioning() || _isPulling()) return;
     const gameNav = window.__SPA_GameNav;
     if (!gameNav) return;
-    const probe = gameNav.buildHeroProbe?.(_si, _ii);
-    if (!probe) return;
 
     await _withTransition(async () => {
-      document.body.appendChild(probe.element);
-
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), rasterizeHero({ type: 'textElement', element: probe.element })]); }
-      catch (_) { probe.cleanup?.(); return; }
-      probe.cleanup?.();
+      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
+        surfaceManager.buildSurface(_si, _ii, 'from'),
+        _rasterizeProbeSurface(() => gameNav.buildHeroProbe?.(_si, _ii))
+      );
+      if (!toSurf) return;
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => {
@@ -221,8 +244,10 @@ export function createAppKernel({
     if (_isTransitioning() || _isPulling()) return;
 
     await _withTransition(async () => {
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
+      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
+        surfaceManager.buildSurface(_si, _ii, 'from'),
+        surfaceManager.buildSurface(_si, _ii, 'to')
+      );
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => { _isGameActive = false; heroRenderer.renderHeroDOM(_si, _ii); }
@@ -237,22 +262,12 @@ export function createAppKernel({
     const to   = gameNav.getToTarget?.(direction);
     if (!from || !to) return;
 
-    const fromProbe = gameNav.buildHeroProbe?.(from.sectionIdx, from.itemIdx);
-    const toProbe   = gameNav.buildHeroProbe?.(to.sectionIdx,   to.itemIdx);
-    if (!fromProbe || !toProbe) { fromProbe?.cleanup?.(); toProbe?.cleanup?.(); return; }
-
     await _withTransition(async () => {
-      document.body.appendChild(fromProbe.element);
-      document.body.appendChild(toProbe.element);
-
-      let fromSurf, toSurf;
-      try {
-        [fromSurf, toSurf] = await Promise.all([
-          rasterizeHero({ type: 'textElement', element: fromProbe.element }),
-          rasterizeHero({ type: 'textElement', element: toProbe.element })
-        ]);
-      } catch (_) { fromProbe.cleanup?.(); toProbe.cleanup?.(); return; }
-      fromProbe.cleanup?.(); toProbe.cleanup?.();
+      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
+        _rasterizeProbeSurface(() => gameNav.buildHeroProbe?.(from.sectionIdx, from.itemIdx)),
+        _rasterizeProbeSurface(() => gameNav.buildHeroProbe?.(to.sectionIdx, to.itemIdx))
+      );
+      if (!fromSurf || !toSurf) return;
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => {
@@ -354,17 +369,14 @@ export function createAppKernel({
         fromSurface:     fromSurf,
         toSurface:       toSurf,
         onBeforeReveal:  async () => {
-          heroRenderer.renderHeroDOM(targetSi, targetIi);
-          navRenderer.updateSectionNav(targetSi, _homeSectionLocked);
-          navRenderer.updateItemDots(targetSi, targetIi);
+          _renderTarget(targetSi, targetIi);
         }
       });
 
       _si = targetSi; _ii = targetIi;
       if (_isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(_si, _ii);
 
-      const inSection = getSection(_si), inItem = getItem(_si, _ii);
-      if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
+      _notifyView(_si, _ii, 'onActivate');
     } catch (_) {}
 
     _cleanupPull();
@@ -380,8 +392,7 @@ export function createAppKernel({
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
     _cleanupPull();
     surfaceManager.startTracking(_si, _ii);
-    const section = getSection(_si), item = getItem(_si, _ii);
-    if (section && item) try { window.__SPA_Views?.[section.id]?.onActivate?.(item.id); } catch (_) {}
+    _notifyView(_si, _ii, 'onActivate');
   }
 
   function _cleanupPull() {

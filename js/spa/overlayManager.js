@@ -36,6 +36,18 @@
     `;
   }
 
+  function createOverlayElement(id, opts = {}) {
+    const html = buildOverlayHTML(id);
+    if (!html) return null;
+    const panel = document.createElement('div');
+    panel.className = opts.inline ? 'spa-overlay spa-overlay--inline' : 'spa-overlay';
+    if (opts.hidden) {
+      panel.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
+    }
+    panel.innerHTML = html;
+    return panel;
+  }
+
   function suppressTap() {
     suppressTapUntil = performance.now() + 350;
   }
@@ -47,13 +59,10 @@
 
     open(id) {
       if (!root) return;
-      const html = buildOverlayHTML(id);
-      if (!html) return;
+      const panel = createOverlayElement(id);
+      if (!panel) return;
       currentId = id;
       suppressTap();
-      const panel = document.createElement('div');
-      panel.className = 'spa-overlay';
-      panel.innerHTML = html;
       root.innerHTML = '';
       root.appendChild(panel);
       root.style.display = 'block';
@@ -72,13 +81,10 @@
     openInline(id, _data, containerEl) {
       if (!containerEl) return;
       if (inlineCleanup) { inlineCleanup(); inlineCleanup = null; }
-      const html = buildOverlayHTML(id);
-      if (!html) return;
+      const panel = createOverlayElement(id, { inline: true });
+      if (!panel) return;
       currentId = id;
       suppressTap();
-      const panel = document.createElement('div');
-      panel.className = 'spa-overlay spa-overlay--inline';
-      panel.innerHTML = html;
       containerEl.innerHTML = '';
       containerEl.appendChild(panel);
       const closeBtn = panel.querySelector('.spa-overlay-close');
@@ -106,12 +112,8 @@
     },
 
     buildProbe(id, _data, opts = {}) {
-      const html = buildOverlayHTML(id);
-      if (!html) return null;
-      const el = document.createElement('div');
-      el.className = opts.inline ? 'spa-overlay spa-overlay--inline' : 'spa-overlay';
-      el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;';
-      el.innerHTML = html;
+      const el = createOverlayElement(id, { inline: !!opts.inline, hidden: true });
+      if (!el) return null;
       document.body.appendChild(el);
       return {
         element: el,

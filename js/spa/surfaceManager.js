@@ -23,6 +23,25 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
   let _trackingKey       = null;
   let _deferredPrimeFrameId = 0;
 
+  function _buildViewProbeInput(viewModule, itemId) {
+    const probe = viewModule?.buildHeroProbe?.(itemId, heroContainer);
+    return probe ? { type: 'textElement', element: probe.element, cleanup: probe.cleanup } : null;
+  }
+
+  function _buildTextProbeInput(heroSpec, item) {
+    const probeWrap = document.createElement('div');
+    probeWrap.className = 'spa-hero spa-hero--text';
+    probeWrap.style.cssText =
+      `position:absolute;left:-9999px;top:0;` +
+      `width:${heroContainer.offsetWidth || 320}px;pointer-events:none;`;
+    const probeText = document.createElement('div');
+    probeText.className = 'spa-hero-text';
+    probeText.textContent = heroSpec.text || item.label;
+    probeWrap.appendChild(probeText);
+    document.body.appendChild(probeWrap);
+    return { type: 'textElement', element: probeWrap, cleanup: () => probeWrap.remove() };
+  }
+
   function stopTracking() {
     if (_deferredPrimeFrameId) {
       cancelAnimationFrame(_deferredPrimeFrameId);
@@ -78,18 +97,9 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
       const liveHero = heroContainer.querySelector('.spa-hero');
       if (liveHero) return { type: 'textElement', element: liveHero };
 
-      // Overlay inline element
-      const overlayRoot = document.getElementById('spa-overlay-root');
-      if (overlayRoot?.style.display !== 'none') {
-        const inlineEl = overlayRoot.querySelector('.spa-overlay--inline');
-        if (inlineEl) return { type: 'textElement', element: inlineEl };
-      }
-
       // View probe
-      if (viewModule?.buildHeroProbe) {
-        const probe = viewModule.buildHeroProbe(item.id, heroContainer);
-        if (probe) return { type: 'textElement', element: probe.element, cleanup: probe.cleanup };
-      }
+      const fromViewProbe = _buildViewProbeInput(viewModule, item.id);
+      if (fromViewProbe) return fromViewProbe;
 
       if (heroSpec.kind === 'image') return { type: 'gif', src: heroSpec.src };
       return { type: 'text', text: heroSpec.text || item.label };
@@ -98,26 +108,14 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
     // phase === 'to'
     if (heroSpec.kind === 'image') return { type: 'gif', src: heroSpec.src };
 
-    if (viewModule?.buildHeroProbe) {
-      const probe = viewModule.buildHeroProbe(item.id, heroContainer);
-      if (probe) return { type: 'textElement', element: probe.element, cleanup: probe.cleanup };
-    }
+    const toViewProbe = _buildViewProbeInput(viewModule, item.id);
+    if (toViewProbe) return toViewProbe;
 
     // Build an offscreen probe that mirrors the exact DOM structure renderHeroDOM
     // produces for text heroes. This makes the rasterized surface use the same CSS
     // (font-size clamp, accent colour, letter-spacing) as the revealed hero, so the
     // particles converge into text that matches what actually appears.
-    const probeWrap = document.createElement('div');
-    probeWrap.className = 'spa-hero spa-hero--text';
-    probeWrap.style.cssText =
-      `position:absolute;left:-9999px;top:0;` +
-      `width:${heroContainer.offsetWidth || 320}px;pointer-events:none;`;
-    const probeText = document.createElement('div');
-    probeText.className = 'spa-hero-text';
-    probeText.textContent = heroSpec.text || item.label;
-    probeWrap.appendChild(probeText);
-    document.body.appendChild(probeWrap);
-    return { type: 'textElement', element: probeWrap, cleanup: () => probeWrap.remove() };
+    return _buildTextProbeInput(heroSpec, item);
   }
 
   async function buildSurface(si, ii, phase) {
