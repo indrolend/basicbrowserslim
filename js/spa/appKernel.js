@@ -62,11 +62,11 @@ export function createAppKernel({
 
   // ─── goTo ─────────────────────────────────────────────────────────────────
 
-  async function goTo(nextSi, nextIi, navOpts = {}) {
+  async function goTo(nextSi, nextIi) {
     if (_homeSectionLocked && nextSi === 0 && _si !== 0) return;
     if (nextSi === _si && nextIi === _ii && !_isPulling()) return;
     if (_isTransitioning() || _isPulling()) {
-      _queuedTarget = { sectionIdx: nextSi, itemIdx: nextIi, navOpts };
+      _queuedTarget = { sectionIdx: nextSi, itemIdx: nextIi };
       return;
     }
 
@@ -368,10 +368,10 @@ export function createAppKernel({
 
   // ─── Navigation ───────────────────────────────────────────────────────────
 
-  function navigate(direction, navOpts = {}) {
+  function navigate(direction) {
     if (_isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
     const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
-    if (t) void goTo(t.sectionIdx, t.itemIdx, navOpts);
+    if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
 
   // ─── Hero action handler ──────────────────────────────────────────────────
@@ -394,7 +394,7 @@ export function createAppKernel({
   function _drainQueue() {
     if (_queuedTarget) {
       const q = _queuedTarget; _queuedTarget = null;
-      void goTo(q.sectionIdx, q.itemIdx, q.navOpts || {});
+      void goTo(q.sectionIdx, q.itemIdx);
     }
   }
 

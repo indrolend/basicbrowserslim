@@ -73,7 +73,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
   e.preventDefault();
   const direction = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev';
-  kernel.navigate(direction, desktopNav.getNavOptions());
+  kernel.navigate(direction);
 });
 
 // ─── Item nav buttons ─────────────────────────────────────────────────────────
@@ -81,8 +81,8 @@ window.addEventListener('keydown', (e) => {
 navRenderer.setupItemNav(
   document.getElementById('spa-prev-btn'),
   document.getElementById('spa-next-btn'),
-  () => kernel.navigate('prev', desktopNav.getNavOptions()),
-  () => kernel.navigate('next', desktopNav.getNavOptions())
+  () => kernel.navigate('prev'),
+  () => kernel.navigate('next')
 );
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────

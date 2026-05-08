@@ -662,7 +662,7 @@ let _pullFromPromise,  _pullToPromise;
 let _pullParticles, _pullCanvasW, _pullCanvasH;
 ```
 
-### `goTo(nextSi, nextIi, navOpts = {})`
+### `goTo(nextSi, nextIi)`
 
 Guards: `_homeSectionLocked && nextSi === 0 && _si !== 0` → return. Same target and not pulling → return. Phase non-idle → queue target, return.
 
@@ -670,7 +670,7 @@ Flow:
 1. `_phase = 'transitioning'`, stop surface tracking.
 2. Call `onDeactivate` on outgoing view (swallow errors).
 3. `await Promise.all([buildSurface(from,'from'), buildSurface(to,'to')])`.
-4. `await transitionKernel.runTransition(from, to, { ...navOpts, onBeforeReveal })`.
+4. `await transitionKernel.runTransition(from, to, { onBeforeReveal })`.
    - `onBeforeReveal`: `_closeOverlayForNav()`, set `_homeSectionLocked = true` if moving away from home, `renderHeroDOM(nextSi, nextIi)`, `updateSectionNav`, `updateItemDots`.
 5. In `finally`: commit `_si/_ii`, call `onActivate` on incoming view, `_render()` if reveal didn't already render, `_phase = 'idle'`, `startTracking`, drain queue.
 
@@ -704,7 +704,7 @@ Flow:
 
 **`_cleanupPull()`**: `_phase = 'idle'`, clear all pull state vars, `resetPullPreview`.
 
-### `navigate(direction, navOpts = {})`
+### `navigate(direction)`
 
 Routes to `gameNavigate(direction)` if game active, else `getTargetForDirection` + `goTo`.
 
@@ -808,7 +808,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowUp' && e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
   e.preventDefault();
   const direction = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'next' : 'prev';
-  kernel.navigate(direction, desktopNav.getNavOptions());
+  kernel.navigate(direction);
 });
 ```
 
@@ -818,8 +818,8 @@ window.addEventListener('keydown', (e) => {
 navRenderer.setupItemNav(
   document.getElementById('spa-prev-btn'),
   document.getElementById('spa-next-btn'),
-  () => kernel.navigate('prev', desktopNav.getNavOptions()),
-  () => kernel.navigate('next', desktopNav.getNavOptions())
+  () => kernel.navigate('prev'),
+  () => kernel.navigate('next')
 );
 
 kernel.render();
