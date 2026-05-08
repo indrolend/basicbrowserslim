@@ -38,13 +38,20 @@ export function createSurfaceManager({ heroContainer, rasterizeHero, getIsTransi
       return;
     }
 
-    if (!getIsTransitioning()) {
+    function primeWhenIdle() {
+      if (_trackingKey !== key) return;
+      if (getIsTransitioning()) {
+        requestAnimationFrame(primeWhenIdle);
+        return;
+      }
       buildSurface(si, ii, 'from').then(s => {
         if (_trackingKey !== key) return;
         _currentSurface = s;
         _currentKey     = key;
       }).catch(() => {});
     }
+
+    requestAnimationFrame(primeWhenIdle);
   }
 
   function _buildRenderInput(si, ii, phase) {
