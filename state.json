@@ -1,0 +1,61 @@
+{
+  "projectName": "basic-browser-spa",
+  "mvpCore": [
+    "index.html",
+    "main.js",
+    "style.css"
+  ],
+  "architecture": "vanilla ES modules + classic scripts (no bundler)",
+  "activeSubsystems": [
+    "spa-kernel",
+    "navigation",
+    "rendering",
+    "transitions",
+    "particles",
+    "overlays"
+  ],
+  "protectedFiles": [
+    "index.html",
+    "basic-browser-spa.prompt.md",
+    "js/spa/appKernel.js",
+    "js/spa/spaData.js",
+    "js/spa/utils.js"
+  ],
+  "allowedModifications": [
+    "main.js",
+    "style.css",
+    "js/spa/**"
+  ],
+  "currentObjective": "Architecture audit and cleanup complete. Removed 5 unused modules (210 LOC), refactored overlayManager from IIFE to ES module, renamed routes.js to itemActions.js.",
+  "completedTasks": [
+    {
+      "task": "Architecture Audit (Meso-scale)",
+      "date": "2026-05-07",
+      "description": "Identified and documented redundancy and convoluted patterns in SPA architecture",
+      "findings": {
+        "deadCodeFiles": ["app.js", "state.js", "navigation.js", "transitionController.js", "renderView.js"],
+        "deadCodeLines": 210,
+        "convolutedPatterns": ["overlayManager.js IIFE", "routes.js naming confusion"]
+      }
+    },
+    {
+      "task": "Dead Code Removal",
+      "date": "2026-05-07",
+      "description": "Deleted 5 unused modules without breaking any active imports"
+    },
+    {
+      "task": "Pattern Refactoring",
+      "date": "2026-05-07",
+      "description": "Converted overlayManager from IIFE to ES module, renamed routes.js to itemActions.js, updated index.html and main.js imports"
+    }
+  ],
+  "validationRules": {
+    "scope": "All changes must respect allowed/protected file boundaries",
+    "dependencies": "No new external dependencies; vanilla JS only",
+    "backwards_compatibility": "Preserve existing runtime contracts",
+    "security": "Maintain Content-Security-Policy and security headers"
+  },
+  "lastUpdated": "2026-05-07T00:00:00Z",
+  "protocolVersion": "PCR-WRIT v1.0",
+  "architectureStatus": "Clean, no redundancy or convolution"
+}

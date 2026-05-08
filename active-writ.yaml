@@ -1,0 +1,104 @@
+writ:
+  version: "PCR-WRIT v1.0"
+  generatedAt: "2026-05-07T00:00:00Z"
+  activeSubsystem: "spa-kernel"
+  scale: "meso"
+  status: "IN-PROGRESS"
+  
+  objectiveStatement: |
+    Optimize SPA for minimal computational footprint.
+    Minify all JavaScript and CSS, remove debug code, optimize asset loading.
+    Target: 50% code size reduction while maintaining 100% functionality.
+  
+  allowed_files:
+    - "js/spa/**/*.js"
+    - "style.css"
+    - "main.js"
+    - "index.html"
+    - "state.json"
+    - "active-writ.yaml"
+  
+  protected_files:
+    - "basic-browser-spa.prompt.md"
+    - "js/spa/apps/asymptoteApp.js"
+    - "js/spa/music/OrbHero3D.js"
+    - ".git/**"
+  
+  constraints:
+    functionality:
+      - "All features must work identically post-optimization"
+      - "No behavioral changes"
+      - "No dependency additions"
+    
+    performance:
+      - "Reduce JS footprint by 40-50%"
+      - "Reduce CSS footprint by 60%+"
+      - "Maintain animation frame rates (60fps target)"
+    
+    maintainability:
+      - "Keep code structure intelligible for future work"
+      - "Preserve critical comments explaining complex logic"
+      - "Maintain class/function names for key modules"
+  
+  optimizationStrategy:
+    - "Minify all JS files (whitespace, short variable names)"
+    - "Minify CSS (remove whitespace, consolidate rules)"
+    - "Remove console logs and debug statements"
+    - "Inline trivial helper functions where beneficial"
+    - "Consolidate repeated code patterns"
+    - "Use CSS shorthand properties"
+  
+  validation:
+    - "Run syntax checks on all minified files"
+    - "Test all navigation functionality"
+    - "Verify particle effects render correctly"
+    - "Confirm no console errors"
+    - "Measure final footprint reduction"
+  
+  allowed_files:
+    - "state.json"
+    - "active-writ.yaml"
+    - "PROTOCOL.md"
+    - "main.js"
+    - "style.css"
+    - "js/spa/**/*.js"
+    - ".gitignore"
+  
+  protected_files:
+    - "index.html"
+    - "basic-browser-spa.prompt.md"
+    - "js/spa/appKernel.js"
+    - "js/spa/state.js"
+    - "js/spa/utils.js"
+    - ".git/**"
+  
+  constraints:
+    runtime:
+      - "Maintain vanilla JS architecture (no bundlers, no frameworks)"
+      - "Preserve all runtime contracts defined in spaData.js"
+      - "Support Content-Security-Policy compliance"
+    
+    dependency:
+      - "No external npm dependencies allowed"
+      - "All code must be static ES modules or classic scripts"
+      - "No dynamic imports from external sources"
+    
+    performance:
+      - "Optimize particle engine and transition kernel"
+      - "Maintain sub-16ms frame targets for animations"
+      - "Avoid blocking main thread operations"
+    
+    validation:
+      - "All modifications must respect allowed/protected file boundaries"
+      - "Validate scope adherence before and after each transformation"
+      - "Run syntax checks on modified JS files"
+  
+  validationChecklist:
+    scopeAdherence: true
+    protectedFileIntegrity: true
+    dependencyClarity: true
+    runtimeContractPreservation: true
+  
+  nextWRIT:
+    triggerCondition: "On new development task from user"
+    action: "Generate scoped WRIT for specific subsystem or objective"
