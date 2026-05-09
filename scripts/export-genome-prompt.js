@@ -70,7 +70,7 @@ lines.push('');
 lines.push(`> ${genome.description}`);
 lines.push('');
 lines.push(`**Version**: ${genome.version}  `);
-lines.push(`**Base commit**: \`${genome.last_verified_commit || 'HEAD'}\``);
+lines.push(`**Base commit**: \`${genome.last_verified_commit || 'unverified'}\``);
 lines.push('');
 lines.push('---');
 lines.push('');

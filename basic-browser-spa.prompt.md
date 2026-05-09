@@ -939,6 +939,8 @@ Primary checker for `semantic-genome.json`. Validates:
 - evidence references (repo-internal path, file existence, optional line-range plausibility, and subject-text plausibility checks)
 - transform-law references to existing gene IDs
 
+`node scripts/check-genome.js` remains as a compatibility alias that forwards to `check-semantic-genome.js`.
+
 ```
 node scripts/check-semantic-genome.js --changed
 ```
@@ -948,8 +950,6 @@ Impact mode. Detects changed files relative to `main` (or falls back to `HEAD~1`
 - affected genes (evidence refs touching those files)
 - affected transform laws (laws requiring affected genes)
 - warnings for potentially stale/weak evidence
-
-`node scripts/check-genome.js` remains as a compatibility alias that forwards to `check-semantic-genome.js`.
 
 ```
 node scripts/export-genome-prompt.js [--out <file>]
