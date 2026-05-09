@@ -196,7 +196,7 @@ lines.push('1. **Preserve all observables.** Any transformation that changes a l
 lines.push('2. **Respect the phase grammar.** Code must never leave `_phase` in a non-idle state after a transition completes or throws.');
 lines.push('3. **Verify genes before applying laws.** Read the evidence lines for every gene in `requires_genes` before applying a transform law.');
 lines.push('4. **Do not fix violated genes speculatively.** Genes with ⚠️ are tracked but require coordinated multi-file changes. Apply only the specific remediation described.');
-lines.push('5. **Update this genome when evidence lines shift.** Run `node scripts/check-genome.js` after any refactor to confirm evidence refs are still valid.');
+lines.push('5. **Update this genome when evidence lines shift.** Run `node scripts/check-semantic-genome.js` after any refactor to confirm evidence refs are still valid.');
 lines.push('6. **Export an updated prompt contract after each pass.** Run `node scripts/export-genome-prompt.js --out genome-prompt.md` to regenerate this file.');
 lines.push('');
 lines.push('---');

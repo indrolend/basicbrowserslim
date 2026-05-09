@@ -20,6 +20,7 @@ function argValue(flag, fallback = null) {
 const repoRoot = path.resolve(argValue('--root', path.resolve(__dirname, '..')));
 const genomePath = path.resolve(argValue('--genome', path.join(repoRoot, 'js', 'spa', 'semantic-genome.json')));
 const changedMode = hasFlag('--changed');
+const INVALIDATION_SCAN_SOURCE_RE = /^js\/spa\/.+\.(js|mjs|cjs)$/i;
 
 let passCount = 0;
 let failCount = 0;
@@ -181,6 +182,15 @@ else fail('genes must be an array');
 
 if (Array.isArray(genome.transform_laws)) ok(`transform_laws is array (${genome.transform_laws.length})`);
 else fail('transform_laws must be an array');
+
+if (typeof genome.last_verified_commit === 'string' && genome.last_verified_commit.trim()) {
+  const commitRef = genome.last_verified_commit.trim();
+  const commitExists = execGit(`git rev-parse --verify --quiet ${commitRef}`);
+  if (commitExists) ok(`last_verified_commit resolves locally: ${commitRef}`);
+  else warn(`last_verified_commit does not resolve in this clone: ${commitRef} (possible stale marker)`);
+} else {
+  warn('last_verified_commit missing or empty; consider updating it when genome verification is refreshed.');
+}
 
 section('2. Gene shape + evidence checks');
 
@@ -375,17 +385,19 @@ if (changedMode) {
     warn(`Potentially stale genes from changed files: ${[...staleGenes].sort().join(', ')}`);
   }
 
+  // Common generic words that produce false positives when matching
+  // invalidation hints against changed source content.
   const stopWords = new Set([
     'any', 'new', 'add', 'added', 'addition', 'change', 'changes', 'removal', 'remove', 'file',
     'path', 'module', 'modules', 'code', 'outside', 'without', 'with', 'that', 'this', 'from',
-    'into', 'where', 'when', 'then', 'rather', 'than', 'does', 'not', 'outside', 'call', 'calls',
+    'into', 'where', 'when', 'then', 'rather', 'than', 'does', 'not', 'call', 'calls',
     'start', 'stop', 'set'
   ]);
   const changedSourceTexts = [];
   for (const rel of changedFiles) {
     const abs = normalizeRepoPath(rel);
     if (!abs || !fs.existsSync(abs)) continue;
-    if (!/^js\/spa\/.+\.(js|mjs|cjs)$/i.test(rel)) continue;
+    if (!INVALIDATION_SCAN_SOURCE_RE.test(rel)) continue;
     changedSourceTexts.push(fs.readFileSync(abs, 'utf8'));
   }
   const changedText = changedSourceTexts.join('\n');

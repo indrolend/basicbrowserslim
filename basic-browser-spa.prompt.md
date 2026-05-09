@@ -973,3 +973,4 @@ Exports the genome as a compact Markdown contract. Pipe to a file and prepend it
 5. After the transformation, run `check-semantic-genome.js` again; update evidence line numbers in the genome if they shifted.
 6. If checker warnings show weak or stale evidence, add/refresh source refs so each touched gene remains mechanically traceable.
 7. To achieve a violated gene, apply the `remediation` hint, confirm the violation is gone from the source, change `proof_class` to `contract_backed`, and remove `violated_at`.
+8. When a verification pass is complete, update `last_verified_commit` in `semantic-genome.json` to the commit used for verification.
