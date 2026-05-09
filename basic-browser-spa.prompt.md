@@ -929,14 +929,32 @@ shouldSuppressTap()  → boolean
 ### Scripts
 
 ```
-node scripts/check-genome.js
+node scripts/check-semantic-genome.js
 ```
-Validates genome structure and confirms every evidence reference points to a real line range in the source.  Exit 0 = all checks pass.  Run after any refactor that touches the evidence lines or the genome itself.
+Primary checker for `semantic-genome.json`. Validates:
+
+- JSON parseability
+- required top-level shape (`version`, `observables`, `phase_grammar`, `genes`, `transform_laws`)
+- per-gene required fields (`id`, `kind`, `subject`, `statement`, `observable_effect`, `evidence`, `confidence`, `proof_class`, `invalidated_by`)
+- evidence references (repo-internal path, file existence, optional line-range plausibility, and subject-text plausibility checks)
+- transform-law references to existing gene IDs
+
+```
+node scripts/check-semantic-genome.js --changed
+```
+Impact mode. Detects changed files relative to `main` (or falls back to `HEAD~1`) and reports:
+
+- changed files
+- affected genes (evidence refs touching those files)
+- affected transform laws (laws requiring affected genes)
+- warnings for potentially stale/weak evidence
+
+`node scripts/check-genome.js` remains as a compatibility alias that forwards to `check-semantic-genome.js`.
 
 ```
 node scripts/export-genome-prompt.js [--out <file>]
 ```
-Exports the genome as a compact Markdown contract.  Pipe to a file and prepend it to any LLM recompilation prompt so the agent knows exactly which invariants to preserve.  Outputs to stdout by default.
+Exports the genome as a compact Markdown contract. Pipe to a file and prepend it to an LLM recompilation prompt so the agent knows exactly which invariants to preserve.
 
 ### Genome proof classes
 
@@ -948,8 +966,10 @@ Exports the genome as a compact Markdown contract.  Pipe to a file and prepend i
 
 ### LLM recompilation workflow
 
-1. Run `check-genome.js` to confirm the genome is in sync with the source.
+1. Run `check-semantic-genome.js` to confirm the genome is in sync with the source.
 2. Run `export-genome-prompt.js --out genome-prompt.md` to generate the compact contract.
 3. Prepend `genome-prompt.md` to your LLM prompt, then describe the transformation.
-4. After the transformation, run `check-genome.js` again; update evidence line numbers in the genome if they shifted.
-5. To achieve a violated gene, apply the `remediation` hint, confirm the violation is gone from the source, change `proof_class` to `contract_backed`, and remove `violated_at`.
+4. Optionally run `check-semantic-genome.js --changed` before and after a refactor to see which genes/laws are impacted by changed files.
+5. After the transformation, run `check-semantic-genome.js` again; update evidence line numbers in the genome if they shifted.
+6. If checker warnings show weak or stale evidence, add/refresh source refs so each touched gene remains mechanically traceable.
+7. To achieve a violated gene, apply the `remediation` hint, confirm the violation is gone from the source, change `proof_class` to `contract_backed`, and remove `violated_at`.
