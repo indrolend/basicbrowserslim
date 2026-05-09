@@ -970,7 +970,7 @@ Exports the genome as a compact Markdown contract. Pipe to a file and prepend it
 2. Run `export-genome-prompt.js --out genome-prompt.md` to generate the compact contract.
 3. Prepend `genome-prompt.md` to your LLM prompt, then describe the transformation.
 4. Optionally run `check-semantic-genome.js --changed` before and after a refactor to see which genes/laws are impacted by changed files.
-5. After the transformation, run `check-semantic-genome.js` again; update evidence line numbers in the genome if they shifted.
+5. After the transformation, run `check-semantic-genome.js` again; update evidence line numbers in the genome if they shifted, then set `last_verified_commit` to the commit you verified.
 6. If checker warnings show weak or stale evidence, add/refresh source refs so each touched gene remains mechanically traceable.
 7. To achieve a violated gene, apply the `remediation` hint, confirm the violation is gone from the source, change `proof_class` to `contract_backed`, and remove `violated_at`.
 8. When a verification pass is complete, update `last_verified_commit` in `semantic-genome.json` to the commit used for verification.
