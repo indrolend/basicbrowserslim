@@ -21,6 +21,14 @@ const repoRoot = path.resolve(argValue('--root', path.resolve(__dirname, '..')))
 const genomePath = path.resolve(argValue('--genome', path.join(repoRoot, 'js', 'spa', 'semantic-genome.json')));
 const changedMode = hasFlag('--changed');
 const INVALIDATION_SCAN_SOURCE_RE = /^js\/spa\/.+\.(js|mjs|cjs)$/i;
+// Common generic words that produce false positives when matching
+// invalidation hints against changed source content.
+const INVALIDATION_STOP_WORDS = new Set([
+  'any', 'new', 'add', 'added', 'addition', 'change', 'changes', 'removal', 'remove', 'file',
+  'path', 'module', 'modules', 'code', 'outside', 'without', 'with', 'that', 'this', 'from',
+  'into', 'where', 'when', 'then', 'rather', 'than', 'does', 'not', 'call', 'calls',
+  'start', 'stop', 'set'
+]);
 
 let passCount = 0;
 let failCount = 0;
@@ -385,14 +393,6 @@ if (changedMode) {
     warn(`Potentially stale genes from changed files: ${[...staleGenes].sort().join(', ')}`);
   }
 
-  // Common generic words that produce false positives when matching
-  // invalidation hints against changed source content.
-  const stopWords = new Set([
-    'any', 'new', 'add', 'added', 'addition', 'change', 'changes', 'removal', 'remove', 'file',
-    'path', 'module', 'modules', 'code', 'outside', 'without', 'with', 'that', 'this', 'from',
-    'into', 'where', 'when', 'then', 'rather', 'than', 'does', 'not', 'call', 'calls',
-    'start', 'stop', 'set'
-  ]);
   const changedSourceTexts = [];
   for (const rel of changedFiles) {
     const abs = normalizeRepoPath(rel);
@@ -410,7 +410,7 @@ if (changedMode) {
         const tokens = rule
           .toLowerCase()
           .split(/[^a-z0-9_.]+/)
-          .filter((t) => t && t.length >= 4 && !stopWords.has(t));
+          .filter((t) => t && t.length >= 4 && !INVALIDATION_STOP_WORDS.has(t));
         for (const token of tokens) clues.push(token);
       }
       const uniqueClues = [...new Set(clues)];
