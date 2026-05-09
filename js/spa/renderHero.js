@@ -9,6 +9,7 @@ import { getSection, getItem, getHeroSpec, getClickAction } from './spaData.js';
 let _gifRestartSeq = 0;
 
 export function createHeroRenderer({ heroContainer }) {
+  let activeGifPlayer = null;
 
   function _isGifSrc(src) {
     return /\.gif(?:[?#]|$)/i.test(src || '');
@@ -26,10 +27,11 @@ export function createHeroRenderer({ heroContainer }) {
   }
 
   function renderHeroDOM(si, ii) {
-    // Stop any active gifler player before wiping the container
-    const prevCanvas = heroContainer.querySelector('canvas.spa-hero-canvas');
-    if (prevCanvas && prevCanvas._giflerPlayer) {
-      try { prevCanvas._giflerPlayer.stop(); } catch (_) {}
+    // Stop the gifler player we own before wiping the container. Keeping this
+    // reference avoids rediscovering the hidden canvas on every hero commit.
+    if (activeGifPlayer) {
+      try { activeGifPlayer.stop(); } catch (_) {}
+      activeGifPlayer = null;
     }
     heroContainer.innerHTML = '';
 
@@ -86,7 +88,10 @@ export function createHeroRenderer({ heroContainer }) {
         wrapper.appendChild(gifCanvas);
         window.gifler(gifRenderSrc).get(function(animator) {
           // Guard: renderHeroDOM may have fired again before XHR resolved.
-          if (!gifCanvas.isConnected) return;
+          if (!gifCanvas.isConnected) {
+            try { animator.stop(); } catch (_) {}
+            return;
+          }
           animator.onDrawFrame = function(ctx, frame) {
             if (!frame?.buffer) return;
             ctx.drawImage(frame.buffer, frame.x, frame.y);
@@ -95,7 +100,7 @@ export function createHeroRenderer({ heroContainer }) {
           // animateInCanvas() resizes the canvas to the GIF's logical dimensions,
           // then starts the animation loop.
           animator.animateInCanvas(gifCanvas);
-          gifCanvas._giflerPlayer = animator;
+          activeGifPlayer = animator;
         });
       } else {
         const img = document.createElement('img');

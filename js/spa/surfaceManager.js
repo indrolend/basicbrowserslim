@@ -22,6 +22,7 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
   let _currentKey        = null;
   let _trackingKey       = null;
   let _deferredPrimeFrameId = 0;
+  const _overlayRoot = document.getElementById('spa-overlay-root');
 
   function stopTracking() {
     if (_deferredPrimeFrameId) {
@@ -79,9 +80,8 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
       if (liveHero) return { type: 'textElement', element: liveHero };
 
       // Overlay inline element
-      const overlayRoot = document.getElementById('spa-overlay-root');
-      if (overlayRoot?.style.display !== 'none') {
-        const inlineEl = overlayRoot.querySelector('.spa-overlay--inline');
+      if (_overlayRoot?.style.display !== 'none') {
+        const inlineEl = _overlayRoot.querySelector('.spa-overlay--inline');
         if (inlineEl) return { type: 'textElement', element: inlineEl };
       }
 
