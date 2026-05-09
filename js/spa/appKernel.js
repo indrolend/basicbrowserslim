@@ -36,8 +36,8 @@ export function createAppKernel({
 
   // Slingshot pull state
   let _pullTargetSi        = null, _pullTargetIi   = null;
-  let _pullFromSurface     = null;
-  let _pullFromPromise     = null, _pullToPromise  = null;
+  let _pullFromSurface     = null;   // resolved 'from' surface, set early so onPull can align
+  let _pullFromPromise     = null, _pullToPromise  = null;  // kept to avoid re-building in onRelease
   let _pullParticles       = null;
   let _pullCanvasW         = 0,   _pullCanvasH    = 0;
 
@@ -244,7 +244,7 @@ export function createAppKernel({
 
   async function exitGameToCurrentItem() {
     if (_isTransitioning() || _isPulling()) return;
-    await _exitCurrentContextWithTransition(() => { _isGameActive = false; });
+    await _exitCurrentContextWithTransition(async () => { _isGameActive = false; });
   }
 
   async function gameNavigate(direction) {
