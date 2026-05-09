@@ -1,16 +1,5 @@
 // utils.js — shared SPA utility helpers
 
-export function addActivationHandler(element, handler) {
-  let touchFired = false;
-  element.addEventListener('touchend', (e) => {
-    touchFired = true;
-    e.preventDefault();
-    handler(e);
-    setTimeout(() => { touchFired = false; }, 600);
-  });
-  element.addEventListener('click', (e) => { if (!touchFired) handler(e); });
-}
-
 export function waitRaf()  { return new Promise(resolve => requestAnimationFrame(resolve)); }
 export function waitMs(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 

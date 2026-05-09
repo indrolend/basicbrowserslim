@@ -36,7 +36,7 @@ export function createAppKernel({
 
   // Slingshot pull state
   let _pullTargetSi        = null, _pullTargetIi   = null;
-  let _pullFromSurface     = null, _pullToSurface  = null;
+  let _pullFromSurface     = null;
   let _pullFromPromise     = null, _pullToPromise  = null;
   let _pullParticles       = null;
   let _pullCanvasW         = 0,   _pullCanvasH    = 0;
@@ -194,7 +194,6 @@ export function createAppKernel({
       if (!toSurf) {
         surfaceManager.startTracking(_si, _ii);
         overlay.open(overlayId);
-        _syncUiState();
         return;
       }
 
@@ -276,11 +275,9 @@ export function createAppKernel({
         onBeforeReveal: async () => {
           _si = to.sectionIdx;
           _ii = to.itemIdx;
-          navRenderer.updateSectionNav(_si, _homeSectionLocked);
-          navRenderer.updateItemDots(_si, _ii);
+          gameNav.commitTo?.(_si, _ii);
+          _renderTarget(_si, _ii);
           _syncUiState();
-          gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
-          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }
       });
     });
@@ -327,7 +324,7 @@ export function createAppKernel({
     _pullFromPromise = fp;
     _pullToPromise   = tp;
     fp.then(s => { if (_pullFromPromise === fp) _pullFromSurface = s; }).catch(() => {});
-    tp.then(s => { if (_pullToPromise   === tp) _pullToSurface   = s; }).catch(() => {});
+    tp.catch(() => {});
 
     surfaceManager.stopTracking();
     transitionKernel.alignCanvas({ width: 320, height: 320 }, { width: 320, height: 320 });
@@ -401,7 +398,7 @@ export function createAppKernel({
   function _cleanupPull() {
     _setPhase('idle');
     _pullTargetSi = null; _pullTargetIi = null;
-    _pullFromSurface = null; _pullToSurface = null;
+    _pullFromSurface = null;
     _pullFromPromise = null; _pullToPromise = null;
     _pullParticles = null; _pullCanvasW = 0; _pullCanvasH = 0;
     transitionKernel.resetPullPreview();
