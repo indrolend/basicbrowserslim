@@ -20,7 +20,13 @@ import { projectParticle, MIN_DEPTH_ALPHA, PULL_Z_RANGE } from './particleSample
 
 const PULL_READBACK_DOWNSAMPLE = 2;
 
-export function createTransitionKernel({ transitionCanvas, transitionCtx, heroContainer }) {
+export function createTransitionKernel({ transitionCanvas, heroContainer }) {
+  let _transitionCtx = null;
+
+  function getTransitionCtx() {
+    if (!_transitionCtx) _transitionCtx = transitionCanvas.getContext('2d');
+    return _transitionCtx;
+  }
 
   // ─── Pull-preview state ───────────────────────────────────────────────────
 
@@ -108,7 +114,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     );
 
     try {
-      await new Promise(resolve => runParticleAnimation(transitionCtx, plan, resolve));
+      await new Promise(resolve => runParticleAnimation(getTransitionCtx(), plan, resolve));
     } finally {
       await _revealHandoff(opts.onBeforeReveal);
     }
@@ -178,6 +184,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
   function renderPullPreview(pullVector, pullNormalized, pullFromSurface) {
     if (!pullFromSurface) return null;
     const cw = transitionCanvas.width, ch = transitionCanvas.height;
+    const transitionCtx = getTransitionCtx();
     transitionCtx.clearRect(0, 0, cw, ch);
 
     const len = Math.sqrt(pullVector.x * pullVector.x + pullVector.y * pullVector.y);
@@ -290,7 +297,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
 
     const finalPlan = plan || buildExplodeReformPlan(fromSurface, toSurface, cw, ch, 'default');
 
-    await new Promise(resolve => runParticleAnimation(transitionCtx, finalPlan, resolve));
+    await new Promise(resolve => runParticleAnimation(getTransitionCtx(), finalPlan, resolve));
     await _revealHandoff(onBeforeReveal);
   }
 

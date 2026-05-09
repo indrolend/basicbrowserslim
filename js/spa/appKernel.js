@@ -10,11 +10,13 @@
 //   - Slingshot gesture callbacks: onTap, onLock, onPull, onRelease, onCancel
 //   - Hero action dispatch
 //
-// Does NOT own: DOM structure, canvas, particle sampling, or rendering.
+// Does NOT own: DOM structure, canvas, or particle sampling. It owns when
+// render commits happen, while renderers own the concrete DOM they write.
 
 import { getSection, getItem, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
 import { getSafeExternalUrl } from './utils.js';
 import { getTargetForDirection } from './navModel.js';
+import { ensureOverlayRuntime, ensureSectionRuntime } from './runtimeModules.js';
 
 export function createAppKernel({
   surfaceManager,
@@ -26,13 +28,17 @@ export function createAppKernel({
 }) {
   // ─── AppState ─────────────────────────────────────────────────────────────
 
-  let _si = 0, _ii = 0;
-  // 'idle' | 'transitioning' | 'pulling'
-  let _phase = 'idle';
-
-  let _homeSectionLocked   = false;
-  let _isGameActive        = false;
-  let _queuedTarget        = null;
+  // Canonical live state: every event mutates this object, every render commit
+  // reads from it. Transition-only scratch data remains below.
+  const state = {
+    si: 0,
+    ii: 0,
+    // 'idle' | 'transitioning' | 'pulling'
+    phase: 'idle',
+    homeSectionLocked: false,
+    isGameActive: false,
+    queuedTarget: null
+  };
 
   // Slingshot pull state
   let _pullTargetSi        = null, _pullTargetIi   = null;
@@ -43,53 +49,72 @@ export function createAppKernel({
 
   // ─── State helpers ────────────────────────────────────────────────────────
 
-  function _isTransitioning() { return _phase !== 'idle'; }
-  function _isPulling()       { return _phase === 'pulling'; }
+  function _isTransitioning() { return state.phase !== 'idle'; }
+  function _isPulling()       { return state.phase === 'pulling'; }
 
   // Visible UI state contract: 'idle' | 'transitioning' | 'pulling' | 'overlay'
   function _computeUiState() {
-    if (_phase !== 'idle') return _phase;
+    if (state.phase !== 'idle') return state.phase;
     return window.__SPA_Overlay?.isOpen?.() ? 'overlay' : 'idle';
   }
 
   function _syncUiState() {
-    const section = getSection(_si);
+    const section = getSection(state.si);
     document.body.dataset.state = _computeUiState();
     document.body.dataset.section = section?.id ?? '';
-    document.body.dataset.item = String(_ii);
+    document.body.dataset.item = String(state.ii);
   }
 
   function _setPhase(nextPhase) {
-    _phase = nextPhase;
+    state.phase = nextPhase;
+    _syncUiState();
+  }
+
+  function _activate(si, ii) {
+    const section = getSection(si), item = getItem(si, ii);
+    if (section && item) try { window.__SPA_Views?.[section.id]?.onActivate?.(item.id); } catch (_) {}
+  }
+
+  function _deactivate(si, ii) {
+    const section = getSection(si), item = getItem(si, ii);
+    if (section && item) try { window.__SPA_Views?.[section.id]?.onDeactivate?.(item.id); } catch (_) {}
+  }
+
+  function _commitPosition(si, ii) {
+    state.si = si;
+    state.ii = ii;
+  }
+
+  function _commitView(si = state.si, ii = state.ii, { hero = true, nav = true } = {}) {
+    if (hero) heroRenderer.renderHeroDOM(si, ii);
+    if (nav) {
+      navRenderer.updateSectionNav(si, state.homeSectionLocked);
+      navRenderer.updateItemDots(si, ii);
+    }
     _syncUiState();
   }
 
   function _render() {
-    navRenderer.updateSectionNav(_si, _homeSectionLocked);
-    navRenderer.updateItemDots(_si, _ii);
-    heroRenderer.renderHeroDOM(_si, _ii);
-    _syncUiState();
+    _commitView();
+  }
+
+  async function _ensureRuntimeFor(si) {
+    const section = getSection(si);
+    if (section) await ensureSectionRuntime(section.id);
   }
 
   function _inferAutoPullVector(nextSi, nextIi) {
-    if (nextSi === _si && nextIi === _ii) return { x: 1, y: 0 };
-    if (nextSi === _si) return { x: nextIi > _ii ? 1 : -1, y: 0 };
-    return { x: nextSi > _si ? 1 : -1, y: 0 };
+    if (nextSi === state.si && nextIi === state.ii) return { x: 1, y: 0 };
+    if (nextSi === state.si) return { x: nextIi > state.ii ? 1 : -1, y: 0 };
+    return { x: nextSi > state.si ? 1 : -1, y: 0 };
   }
 
-  async function _withTransition(run, opts = {}) {
-    const {
-      stopTracking = false,
-      startTracking = false,
-      drainQueue = false
-    } = opts;
+  async function _withTransition(run, { drainQueue = false } = {}) {
     _setPhase('transitioning');
-    if (stopTracking) surfaceManager.stopTracking();
     try {
       await run();
     } finally {
       _setPhase('idle');
-      if (startTracking) surfaceManager.startTracking(_si, _ii);
       if (drainQueue) _drainQueue();
     }
   }
@@ -97,17 +122,17 @@ export function createAppKernel({
   // ─── goTo ─────────────────────────────────────────────────────────────────
 
   async function goTo(nextSi, nextIi) {
-    if (_homeSectionLocked && nextSi === 0 && _si !== 0) return;
-    if (nextSi === _si && nextIi === _ii && !_isPulling()) return;
+    if (state.homeSectionLocked && nextSi === 0 && state.si !== 0) return;
+    if (nextSi === state.si && nextIi === state.ii && !_isPulling()) return;
     if (_isTransitioning() || _isPulling()) {
-      _queuedTarget = { sectionIdx: nextSi, itemIdx: nextIi };
+      state.queuedTarget = { sectionIdx: nextSi, itemIdx: nextIi };
       return;
     }
 
     await _withTransition(async () => {
-      const fromSi = _si, fromIi = _ii;
-      const outSection = getSection(fromSi), outItem = getItem(fromSi, fromIi);
-      if (outSection && outItem) try { window.__SPA_Views?.[outSection.id]?.onDeactivate?.(outItem.id); } catch (_) {}
+      await Promise.all([_ensureRuntimeFor(state.si), _ensureRuntimeFor(nextSi)]);
+      const fromSi = state.si, fromIi = state.ii;
+      _deactivate(fromSi, fromIi);
 
       let fromSurf, toSurf;
       try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(fromSi, fromIi, 'from'), surfaceManager.buildSurface(nextSi, nextIi, 'to')]); } catch (_) {}
@@ -123,22 +148,19 @@ export function createAppKernel({
           autoPullVector: _inferAutoPullVector(nextSi, nextIi),
           onBeforeReveal: async () => {
             _closeOverlayForNav();
-            if (nextSi !== 0 && !_homeSectionLocked) _homeSectionLocked = true;
-            heroRenderer.renderHeroDOM(nextSi, nextIi);
-            navRenderer.updateSectionNav(nextSi, _homeSectionLocked);
-            navRenderer.updateItemDots(nextSi, nextIi);
+            if (nextSi !== 0 && !state.homeSectionLocked) state.homeSectionLocked = true;
+            _commitPosition(nextSi, nextIi);
+            _commitView();
             didRenderDuringReveal = true;
           }
         });
       } finally {
-        _si = nextSi; _ii = nextIi;
-
-        const inSection = getSection(nextSi), inItem = getItem(nextSi, nextIi);
-        if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
+        _commitPosition(nextSi, nextIi);
+        _activate(nextSi, nextIi);
 
         if (!didRenderDuringReveal) _render();
       }
-    }, { stopTracking: true, startTracking: true, drainQueue: true });
+    }, { drainQueue: true });
   }
 
   // ─── Overlay lifecycle ────────────────────────────────────────────────────
@@ -149,6 +171,7 @@ export function createAppKernel({
 
   async function openOverlayWithTransition(overlayId) {
     if (_isTransitioning() || _isPulling()) return;
+    await ensureOverlayRuntime().catch(() => {});
     const overlay = window.__SPA_Overlay;
     if (!overlay) return;
 
@@ -160,12 +183,11 @@ export function createAppKernel({
       try {
         document.body.appendChild(probe.element);
         [fromSurf, toSurf] = await Promise.all([
-          surfaceManager.buildSurface(_si, _ii, 'from'),
+          surfaceManager.buildSurface(state.si, state.ii, 'from'),
           rasterizeHero({ type: 'textElement', element: probe.element })
         ]);
       } catch (_) {
         probe.cleanup?.();
-        surfaceManager.startTracking(_si, _ii);
         overlay.open(overlayId);
         _syncUiState();
         return;
@@ -174,7 +196,7 @@ export function createAppKernel({
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => { probe.cleanup?.(); overlay.openInline(overlayId, {}, heroContainer); }
       });
-    }, { stopTracking: true });
+    });
   }
 
   async function closeOverlayWithTransition() {
@@ -183,38 +205,39 @@ export function createAppKernel({
 
     await _withTransition(async () => {
       let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
+      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(state.si, state.ii, 'from'), surfaceManager.buildSurface(state.si, state.ii, 'to')]); } catch (_) {}
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { overlay.close({ restore: false }); heroRenderer.renderHeroDOM(_si, _ii); }
+        onBeforeReveal: async () => { overlay.close({ restore: false }); _commitView(state.si, state.ii, { nav: false }); }
       });
-    }, { startTracking: true });
+    });
   }
 
   // ─── Game mode lifecycle ──────────────────────────────────────────────────
 
   async function enterCurrentGameWithTransition() {
     if (_isTransitioning() || _isPulling()) return;
+    await _ensureRuntimeFor(state.si);
     const gameNav = window.__SPA_GameNav;
     if (!gameNav) return;
-    const probe = gameNav.buildHeroProbe?.(_si, _ii);
+    const probe = gameNav.buildHeroProbe?.(state.si, state.ii);
     if (!probe) return;
 
     await _withTransition(async () => {
       document.body.appendChild(probe.element);
 
       let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), rasterizeHero({ type: 'textElement', element: probe.element })]); }
+      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(state.si, state.ii, 'from'), rasterizeHero({ type: 'textElement', element: probe.element })]); }
       catch (_) { probe.cleanup?.(); return; }
       probe.cleanup?.();
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => {
-          _isGameActive = true;
+          state.isGameActive = true;
           window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }
       });
-    }, { stopTracking: true });
+    });
   }
 
   async function exitGameToCurrentItem() {
@@ -222,15 +245,16 @@ export function createAppKernel({
 
     await _withTransition(async () => {
       let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
+      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(state.si, state.ii, 'from'), surfaceManager.buildSurface(state.si, state.ii, 'to')]); } catch (_) {}
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { _isGameActive = false; heroRenderer.renderHeroDOM(_si, _ii); }
+        onBeforeReveal: async () => { state.isGameActive = false; _commitView(state.si, state.ii, { nav: false }); }
       });
-    }, { startTracking: true });
+    });
   }
 
   async function gameNavigate(direction) {
+    await _ensureRuntimeFor(state.si);
     const gameNav = window.__SPA_GameNav;
     if (!gameNav || _isTransitioning() || _isPulling()) return;
     const from = gameNav.getFromTarget?.();
@@ -256,11 +280,8 @@ export function createAppKernel({
 
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => {
-          _si = to.sectionIdx;
-          _ii = to.itemIdx;
-          navRenderer.updateSectionNav(_si, _homeSectionLocked);
-          navRenderer.updateItemDots(_si, _ii);
-          _syncUiState();
+          _commitPosition(to.sectionIdx, to.itemIdx);
+          _commitView(state.si, state.ii, { hero: false });
           gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
           window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
         }
@@ -273,26 +294,26 @@ export function createAppKernel({
   function onTap() {
     if (window.__SPA_Overlay?.shouldSuppressTap?.()) return;
     if (window.__SPA_Overlay?.isOpen()) { void closeOverlayWithTransition(); return; }
-    if (_isGameActive) { window.__SPA_GameNav?.onTap?.(); return; }
-    const action = getClickAction(_si, _ii);
+    if (state.isGameActive) { window.__SPA_GameNav?.onTap?.(); return; }
+    const action = getClickAction(state.si, state.ii);
     if (action) _handleHeroAction(action);
   }
 
   function onLock({ direction }) {
-    if (_phase === 'transitioning') {
-      const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
-      if (t) _queuedTarget = { sectionIdx: t.sectionIdx, itemIdx: t.itemIdx };
+    if (state.phase === 'transitioning') {
+      const t = getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
+      if (t) state.queuedTarget = { sectionIdx: t.sectionIdx, itemIdx: t.itemIdx };
       return false;
     }
     if (_isPulling()) return false;
 
     let targetSi, targetIi;
-    if (_isGameActive && window.__SPA_GameNav) {
+    if (state.isGameActive && window.__SPA_GameNav) {
       const t = window.__SPA_GameNav.getToTarget?.(direction);
       if (!t) return false;
       targetSi = t.sectionIdx; targetIi = t.itemIdx;
     } else {
-      const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
+      const t = getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
       if (!t) return false;
       targetSi = t.sectionIdx; targetIi = t.itemIdx;
     }
@@ -304,14 +325,13 @@ export function createAppKernel({
     _pullParticles = null;
 
     // Build surfaces in parallel while the user is pulling
-    const fp = surfaceManager.buildSurface(_si, _ii, 'from');
-    const tp = surfaceManager.buildSurface(targetSi, targetIi, 'to');
+    const fp = _ensureRuntimeFor(state.si).then(() => surfaceManager.buildSurface(state.si, state.ii, 'from'));
+    const tp = _ensureRuntimeFor(targetSi).then(() => surfaceManager.buildSurface(targetSi, targetIi, 'to'));
     _pullFromPromise = fp;
     _pullToPromise   = tp;
     fp.then(s => { if (_pullFromPromise === fp) _pullFromSurface = s; }).catch(() => {});
     tp.then(s => { if (_pullToPromise   === tp) _pullToSurface   = s; }).catch(() => {});
 
-    surfaceManager.stopTracking();
     transitionKernel.alignCanvas({ width: 320, height: 320 }, { width: 320, height: 320 });
     transitionKernel.showCanvas();
     transitionKernel.hideHero();
@@ -339,7 +359,7 @@ export function createAppKernel({
     let fromSurf, toSurf;
     try {
       [fromSurf, toSurf] = await Promise.all([
-        _pullFromPromise || surfaceManager.buildSurface(_si, _ii, 'from'),
+        _pullFromPromise || surfaceManager.buildSurface(state.si, state.ii, 'from'),
         _pullToPromise   || surfaceManager.buildSurface(targetSi, targetIi, 'to')
       ]);
     } catch (_) { cancelSlingshot(); return; }
@@ -354,21 +374,17 @@ export function createAppKernel({
         fromSurface:     fromSurf,
         toSurface:       toSurf,
         onBeforeReveal:  async () => {
-          heroRenderer.renderHeroDOM(targetSi, targetIi);
-          navRenderer.updateSectionNav(targetSi, _homeSectionLocked);
-          navRenderer.updateItemDots(targetSi, targetIi);
+          _commitPosition(targetSi, targetIi);
+          _commitView();
         }
       });
 
-      _si = targetSi; _ii = targetIi;
-      if (_isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(_si, _ii);
-
-      const inSection = getSection(_si), inItem = getItem(_si, _ii);
-      if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
+      _commitPosition(targetSi, targetIi);
+      if (state.isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(state.si, state.ii);
+      _activate(state.si, state.ii);
     } catch (_) {}
 
     _cleanupPull();
-    surfaceManager.startTracking(_si, _ii);
     _drainQueue();
   }
 
@@ -379,9 +395,7 @@ export function createAppKernel({
     const heroEl = heroContainer.firstElementChild;
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
     _cleanupPull();
-    surfaceManager.startTracking(_si, _ii);
-    const section = getSection(_si), item = getItem(_si, _ii);
-    if (section && item) try { window.__SPA_Views?.[section.id]?.onActivate?.(item.id); } catch (_) {}
+    _activate(state.si, state.ii);
   }
 
   function _cleanupPull() {
@@ -396,8 +410,8 @@ export function createAppKernel({
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   function navigate(direction) {
-    if (_isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
-    const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
+    if (state.isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
+    const t = getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
 
@@ -419,10 +433,16 @@ export function createAppKernel({
   // ─── Queue drain ──────────────────────────────────────────────────────────
 
   function _drainQueue() {
-    if (_queuedTarget) {
-      const q = _queuedTarget; _queuedTarget = null;
+    if (state.queuedTarget) {
+      const q = state.queuedTarget; state.queuedTarget = null;
       void goTo(q.sectionIdx, q.itemIdx);
     }
+  }
+
+  function start(si = 0, ii = 0) {
+    _commitPosition(si, ii);
+    _commitView();
+    _activate(state.si, state.ii);
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -445,20 +465,19 @@ export function createAppKernel({
     enterCurrentGameWithTransition,
     exitGameToCurrentItem,
     gameNavigate,
-    setGameActive(active) { _isGameActive = !!active; _syncUiState(); },
+    setGameActive(active) { state.isGameActive = !!active; _syncUiState(); },
     // State accessors
-    getSi() { return _si; },
-    getIi() { return _ii; },
+    getSi() { return state.si; },
+    getIi() { return state.ii; },
     isTransitioning: _isTransitioning,
     // Hero action (used by heroRenderer onAction callback)
     onHeroAction: _handleHeroAction,
-    // Render
+    // Render/lifecycle
     render: _render,
+    start,
     // Window API helpers
     restoreCurrentItemHero() {
-      heroRenderer.renderHeroDOM(_si, _ii);
-      surfaceManager.startTracking(_si, _ii);
-      _syncUiState();
+      _commitView(state.si, state.ii, { nav: false });
     }
   };
 }
