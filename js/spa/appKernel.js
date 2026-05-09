@@ -65,9 +65,7 @@ export function createAppKernel({
   }
 
   function _render() {
-    navRenderer.updateSectionNav(_si, _homeSectionLocked);
-    navRenderer.updateItemDots(_si, _ii);
-    heroRenderer.renderHeroDOM(_si, _ii);
+    _renderTarget(_si, _ii);
     _syncUiState();
   }
 
@@ -206,15 +204,17 @@ export function createAppKernel({
   async function closeOverlayWithTransition() {
     const overlay = window.__SPA_Overlay;
     if (!overlay?.isOpen() || _isTransitioning() || _isPulling()) return;
+    await _exitCurrentContextWithTransition(() => overlay.close({ restore: false }));
+  }
 
+  async function _exitCurrentContextWithTransition(onReveal) {
     await _withTransition(async () => {
       const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
         surfaceManager.buildSurface(_si, _ii, 'from'),
         surfaceManager.buildSurface(_si, _ii, 'to')
       );
-
       await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { overlay.close({ restore: false }); heroRenderer.renderHeroDOM(_si, _ii); }
+        onBeforeReveal: async () => { await onReveal?.(); heroRenderer.renderHeroDOM(_si, _ii); }
       });
     }, { startTracking: true });
   }
@@ -236,7 +236,7 @@ export function createAppKernel({
       await transitionKernel.runTransition(fromSurf, toSurf, {
         onBeforeReveal: async () => {
           _isGameActive = true;
-          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
+          _renderTarget(_si, _ii);
         }
       });
     }, { stopTracking: true });
@@ -244,17 +244,7 @@ export function createAppKernel({
 
   async function exitGameToCurrentItem() {
     if (_isTransitioning() || _isPulling()) return;
-
-    await _withTransition(async () => {
-      const { fromSurface: fromSurf, toSurface: toSurf } = await _buildSurfacePair(
-        surfaceManager.buildSurface(_si, _ii, 'from'),
-        surfaceManager.buildSurface(_si, _ii, 'to')
-      );
-
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { _isGameActive = false; heroRenderer.renderHeroDOM(_si, _ii); }
-      });
-    }, { startTracking: true });
+    await _exitCurrentContextWithTransition(() => { _isGameActive = false; });
   }
 
   async function gameNavigate(direction) {
@@ -323,8 +313,7 @@ export function createAppKernel({
     const tp = surfaceManager.buildSurface(targetSi, targetIi, 'to');
     _pullFromPromise = fp;
     _pullToPromise   = tp;
-    fp.then(s => { if (_pullFromPromise === fp) _pullFromSurface = s; }).catch(() => {});
-    tp.catch(() => {});
+    fp.then(s => { if (_pullFromPromise === fp) _pullFromSurface = s; });
 
     surfaceManager.stopTracking();
     transitionKernel.alignCanvas({ width: 320, height: 320 }, { width: 320, height: 320 });
