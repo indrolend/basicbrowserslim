@@ -82,12 +82,8 @@ export function createAppKernel({
   }
 
   async function _buildSurfacePair(fromSurfacePromise, toSurfacePromise) {
-    try {
-      const [fromSurface, toSurface] = await Promise.all([fromSurfacePromise, toSurfacePromise]);
-      return { fromSurface, toSurface };
-    } catch (_) {
-      return { fromSurface: null, toSurface: null };
-    }
+    const [fromSurface, toSurface] = await Promise.all([fromSurfacePromise, toSurfacePromise]);
+    return { fromSurface, toSurface };
   }
 
   async function _rasterizeProbeSurface(buildProbe) {
@@ -377,8 +373,7 @@ export function createAppKernel({
 
   function cancelSlingshot() {
     transitionKernel.hideCanvas();
-    const heroEl = heroContainer.firstElementChild;
-    if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
+    transitionKernel.showHero();
     _cleanupPull();
     surfaceManager.startTracking(_si, _ii);
     _notifyView(_si, _ii, 'onActivate');

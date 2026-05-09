@@ -60,6 +60,11 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     if (heroEl) { heroEl.style.visibility = 'hidden'; heroEl.style.opacity = '0'; heroEl.style.transition = ''; }
   }
 
+  function showHero() {
+    const heroEl = heroContainer.firstElementChild;
+    if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
+  }
+
   // ─── Reveal handoff ───────────────────────────────────────────────────────
 
   async function _revealHandoff(onBeforeReveal) {
@@ -302,6 +307,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     showCanvas,
     hideCanvas,
     hideHero,
+    showHero,
     runTransition,
     resetPullPreview,
     renderPullPreview,

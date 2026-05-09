@@ -2,11 +2,11 @@
 
 import { SPA_SECTIONS, getSection } from './spaData.js';
 
-export function getAvailableSections(homeSectionLocked) {
+function getAvailableSections(homeSectionLocked) {
   return homeSectionLocked ? SPA_SECTIONS.filter((_, i) => i !== 0) : SPA_SECTIONS;
 }
 
-export function getNextTarget(si, ii, homeSectionLocked) {
+function getNextTarget(si, ii, homeSectionLocked) {
   const section = getSection(si);
   if (!section) return null;
   if (ii + 1 < section.items.length) return { sectionIdx: si, itemIdx: ii + 1 };
@@ -16,7 +16,7 @@ export function getNextTarget(si, ii, homeSectionLocked) {
   return { sectionIdx: SPA_SECTIONS.indexOf(next), itemIdx: 0 };
 }
 
-export function getPrevTarget(si, ii, homeSectionLocked) {
+function getPrevTarget(si, ii, homeSectionLocked) {
   const section = getSection(si);
   if (!section) return null;
   if (ii - 1 >= 0) return { sectionIdx: si, itemIdx: ii - 1 };
