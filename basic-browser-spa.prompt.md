@@ -914,3 +914,42 @@ shouldSuppressTap()  → boolean
 8. All external link opens use `window.open(url, '_blank', 'noopener,noreferrer')` with `newWindow.opener = null`.
 9. Slingshot tap fires overlay/link action for the current item; does nothing if overlay suppresses taps.
 10. Keyboard arrow keys use a chained timing window (`DESKTOP_CHAIN_WINDOW_MS = 260ms`) to select `timingProfile: 'chained'` for rapid key-repeat navigation.
+
+---
+
+## Semantic genome and static-recompiler tooling
+
+`js/spa/semantic-genome.json` is the machine-readable contract that makes this codebase safe to recompile with an LLM. It records:
+
+- **observables** — what must survive any transformation
+- **phase grammar** — valid runtime states
+- **genes** — named behavioral invariants, each with evidence links, confidence scores, and invalidation conditions
+- **transform laws** — categories of refactor that are behavior-preserving when their required genes are verified
+
+### Scripts
+
+```
+node scripts/check-genome.js
+```
+Validates genome structure and confirms every evidence reference points to a real line range in the source.  Exit 0 = all checks pass.  Run after any refactor that touches the evidence lines or the genome itself.
+
+```
+node scripts/export-genome-prompt.js [--out <file>]
+```
+Exports the genome as a compact Markdown contract.  Pipe to a file and prepend it to any LLM recompilation prompt so the agent knows exactly which invariants to preserve.  Outputs to stdout by default.
+
+### Genome proof classes
+
+| `proof_class`    | Meaning |
+|------------------|---------|
+| `contract_backed`| Invariant is enforced by explicit try/catch, finally, or structural contract in the cited source lines. |
+| `violated`       | Invariant is the **target** state; the current code has a known deviation listed in `violated_at`. Fix it by following the `remediation` hint. |
+| `aspirational`   | Invariant is intended but not yet evidenced. |
+
+### LLM recompilation workflow
+
+1. Run `check-genome.js` to confirm the genome is in sync with the source.
+2. Run `export-genome-prompt.js --out genome-prompt.md` to generate the compact contract.
+3. Prepend `genome-prompt.md` to your LLM prompt, then describe the transformation.
+4. After the transformation, run `check-genome.js` again; update evidence line numbers in the genome if they shifted.
+5. To achieve a violated gene, apply the `remediation` hint, confirm the violation is gone from the source, change `proof_class` to `contract_backed`, and remove `violated_at`.
