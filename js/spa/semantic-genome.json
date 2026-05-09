@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Semantic genome for basicbrowserslim SPA runtime. Contains the minimal set of behavioral invariants required to regenerate observable behavior under valid transformations. Each gene is evidence-backed and invalidatable. Transform laws are only valid when the genes they cite remain verified. Genes with proof_class 'violated' are aspirational invariants that are not yet enforced in the current codebase; they are included so a static-recompiler agent knows what to fix.",
   "version": "1.0.0",
-  "last_verified_commit": "85cc451f6ec9bc736b9bfa9957220654257e9cbe",
+  "last_verified_commit": "92fbedf9d07ead3c49d53a3c52a70cfdeac8a75c",
   "observables": [
     "visible hero content (heroContainer.firstElementChild)",
     "nav state (navRenderer.updateSectionNav, navRenderer.updateItemDots)",
@@ -138,23 +138,17 @@
       "id": "nav-001",
       "kind": "module_contract",
       "subject": "navModel public API",
-      "statement": "navModel's only public export should be getTargetForDirection. getAvailableSections, getNextTarget, and getPrevTarget should be module-private. appKernel should be the sole consumer of the public API.",
+      "statement": "navModel's only public export is getTargetForDirection. getAvailableSections, getNextTarget, and getPrevTarget are module-private helpers. appKernel is the sole consumer of the public API.",
       "observable_effect": "Navigation target computation is fully encapsulated; external modules cannot depend on internal helpers.",
       "evidence": [
-        { "type": "source", "ref": "js/spa/navModel.js:31-35" }
+        { "type": "source", "ref": "js/spa/navModel.js:5-35" }
       ],
-      "confidence": 0.50,
-      "proof_class": "violated",
-      "violated_at": [
-        { "type": "source", "ref": "js/spa/navModel.js:5-7", "note": "getAvailableSections is exported but only used internally" },
-        { "type": "source", "ref": "js/spa/navModel.js:9-17", "note": "getNextTarget is exported but only used internally" },
-        { "type": "source", "ref": "js/spa/navModel.js:19-28", "note": "getPrevTarget is exported but only used internally" }
-      ],
+      "confidence": 0.95,
+      "proof_class": "contract_backed",
       "invalidated_by": [
         "addition of any new export from navModel",
         "a second module importing from navModel other than appKernel"
-      ],
-      "remediation": "Remove 'export' keyword from getAvailableSections, getNextTarget, getPrevTarget. Apply transform_law tl-02."
+      ]
     },
     {
       "id": "own-001",
