@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Semantic genome for basicbrowserslim SPA runtime. Contains the minimal set of behavioral invariants required to regenerate observable behavior under valid transformations. Each gene is evidence-backed and invalidatable. Transform laws are only valid when the genes they cite remain verified.",
+  "version": "1.0.0",
+  "last_verified_commit": "HEAD",
+  "observables": [
+    "visible hero content (heroContainer.firstElementChild)",
+    "nav state (updateSectionNav, updateItemDots)",
+    "body dataset state/section/item",
+    "overlay open/closed (window.__SPA_Overlay.isOpen())",
+    "game active (_isGameActive flag + body dataset)",
+    "surface tracking on/off (surfaceManager._trackingKey)",
+    "transition canvas shown/hidden (transitionCanvas.style.display)"
+  ],
+  "phase_grammar": ["idle", "pulling", "transitioning"],
+  "genes": [
+    {
+      "id": "surf-001",
+      "kind": "behavioral_invariant",
+      "subject": "surfaceManager.buildSurface",
+      "statement": "buildSurface(si, ii, phase) always resolves to surface|null, never rejects. Failures are caught internally and normalize to null. Callers never need try/catch.",
+      "observable_effect": "Rasterization failures degrade gracefully to a no-animation fallback; they never crash a transition.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/surfaceManager.js:121-136" }
+      ],
+      "confidence": 0.99,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "any change that causes rasterizeHero to reject without internal catch",
+        "removal of the try/catch in buildSurface"
+      ]
+    },
+    {
+      "id": "surf-002",
+      "kind": "behavioral_invariant",
+      "subject": "appKernel._rasterizeProbeSurface",
+      "statement": "_rasterizeProbeSurface always resolves to surface|null, never rejects. Probe cleanup always runs in finally regardless of success or failure.",
+      "observable_effect": "Probe DOM elements never leak. _buildSurfacePair's Promise.all never rejects from either input.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:89-102" }
+      ],
+      "confidence": 0.99,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "removal of the try/catch/finally in _rasterizeProbeSurface",
+        "any path where probe.cleanup is called conditionally rather than in finally"
+      ]
+    },
+    {
+      "id": "render-001",
+      "kind": "behavioral_invariant",
+      "subject": "appKernel._renderTarget",
+      "statement": "_renderTarget(si, ii) is the authoritative full visible-state render. It calls renderHeroDOM + updateSectionNav + updateItemDots atomically. It is the only valid way to commit a new (si, ii) position to the DOM.",
+      "observable_effect": "Hero DOM, section nav, and item dots are always in sync after any position commit.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:72-76" }
+      ],
+      "confidence": 0.99,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "any direct call to renderHeroDOM outside _renderTarget that does not also call updateSectionNav + updateItemDots",
+        "addition of new nav/hero sync side-effects to any of the three renderers"
+      ]
+    },
+    {
+      "id": "trans-001",
+      "kind": "lifecycle_invariant",
+      "subject": "appKernel._withTransition + transitionKernel.runTransition",
+      "statement": "All transitions follow the phase grammar: capture(surfaces) → animate(particles) → reveal(handoff) → commit/cleanup. _withTransition enforces idle→transitioning→idle bracketing around every run, including on failure.",
+      "observable_effect": "_phase is never left in 'transitioning' after a transition completes or throws. body.dataset.state always reflects the post-transition phase.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:110-125" },
+        { "type": "source", "ref": "js/spa/transitionKernel.js:99-119" }
+      ],
+      "confidence": 0.97,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "any transition that bypasses _withTransition and sets _phase directly",
+        "removal of the finally block in _withTransition",
+        "change to reveal handoff ordering in transitionKernel"
+      ]
+    },
+    {
+      "id": "trans-002",
+      "kind": "ownership_invariant",
+      "subject": "transitionKernel",
+      "statement": "transitionKernel owns all transient hero visibility mutations. hideHero/showHero/hideCanvas/showCanvas are the canonical operators. No module outside transitionKernel may set heroEl.style.visibility or heroEl.style.opacity directly.",
+      "observable_effect": "Hero visibility state is always the result of a canonical operator, never of ad-hoc style mutation.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/transitionKernel.js:46-66" }
+      ],
+      "confidence": 0.97,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "any new direct heroEl.style.visibility or heroEl.style.opacity assignment outside transitionKernel",
+        "export of heroContainer to a module that is not transitionKernel"
+      ]
+    },
+    {
+      "id": "trans-003",
+      "kind": "equivalence_class",
+      "subject": "appKernel._exitCurrentContextWithTransition",
+      "statement": "context-exit is a named phenotype: {same-position surface pair, runTransition, onReveal hook, startTracking on finish}. Both closeOverlayWithTransition and exitGameToCurrentItem are instances. _exitCurrentContextWithTransition is the canonical implementation.",
+      "observable_effect": "Overlay-close and game-exit produce identical observable phase transitions. New context-exit flows should route through the same phenotype.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:200-216" },
+        { "type": "source", "ref": "js/spa/appKernel.js:241-244" }
+      ],
+      "confidence": 0.95,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "addition of a new context-exit flow that does not use _exitCurrentContextWithTransition",
+        "divergence in cleanup semantics between overlay-close and game-exit"
+      ]
+    },
+    {
+      "id": "pull-001",
+      "kind": "behavioral_invariant",
+      "subject": "appKernel.cancelSlingshot",
+      "statement": "slingshot-cancel is a named postcondition set: {hideCanvas, showHero, _cleanupPull, startTracking(si,ii), notifyView(onActivate)}. All five effects are required. Omitting any is a behavioral regression.",
+      "observable_effect": "After cancel: hero is visible, canvas is hidden, phase is idle, surface tracking is running, view is notified.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:374-380" }
+      ],
+      "confidence": 0.97,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "removal of any of the five effects from cancelSlingshot",
+        "change to the tracking or hero visibility ownership model"
+      ]
+    },
+    {
+      "id": "own-001",
+      "kind": "ownership_invariant",
+      "subject": "probe lifecycle",
+      "statement": "Probes are feature-owned, runtime-consumed. Feature modules own probe creation and cleanup via buildHeroProbe/buildProbe. appKernel consumes probes via _rasterizeProbeSurface but must not hardcode feature identities (e.g., no string literal 'games' in transition paths).",
+      "observable_effect": "New feature types add a probe builder to the feature module; appKernel transition paths gain zero new conditionals.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:89-102" },
+        { "type": "source", "ref": "js/spa/appKernel.js:225-239" }
+      ],
+      "confidence": 0.93,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "addition of a feature-specific string literal or import in any appKernel transition path",
+        "probe cleanup moved out of the feature module into appKernel"
+      ]
+    },
+    {
+      "id": "state-001",
+      "kind": "behavioral_invariant",
+      "subject": "appKernel._computeUiState",
+      "statement": "Visible UI state is a pure function of (_phase, overlay.isOpen()). The state domain is: 'idle' | 'transitioning' | 'pulling' | 'overlay'. _computeUiState is authoritative. body.dataset.{state,section,item} are its derived outputs.",
+      "observable_effect": "CSS and external code reading body.dataset.state see a value that is always consistent with runtime phase.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/appKernel.js:49-65" }
+      ],
+      "confidence": 0.99,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "addition of a new phase or state value without updating _computeUiState",
+        "any direct write to body.dataset.state outside _syncUiState"
+      ]
+    },
+    {
+      "id": "nav-001",
+      "kind": "module_contract",
+      "subject": "navModel",
+      "statement": "navModel's only public export is getTargetForDirection. getAvailableSections, getNextTarget, and getPrevTarget are module-private. appKernel is the sole consumer of the public API.",
+      "observable_effect": "Navigation target computation is fully encapsulated; external modules cannot depend on internal helpers.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/navModel.js:31-35" }
+      ],
+      "confidence": 0.99,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "addition of any new export from navModel",
+        "a second module importing from navModel"
+      ]
+    },
+    {
+      "id": "track-001",
+      "kind": "behavioral_invariant",
+      "subject": "surfaceManager.startTracking / stopTracking",
+      "statement": "stopTracking and startTracking are symmetric lifecycle operators. stopTracking cancels any deferred RAF and clears _trackingKey. startTracking calls stopTracking first, then re-primes the surface cache after one RAF (skipped for GIF/view-probe heroes). Every stopTracking must eventually have a paired startTracking or the cache is permanently stale.",
+      "observable_effect": "The cached hero surface is always fresh when a transition begins. Transitions never use stale surfaces from a prior position.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/surfaceManager.js:45-74" }
+      ],
+      "confidence": 0.97,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "any _withTransition(stopTracking:true) call that does not also set startTracking:true or manually call startTracking",
+        "change to the deferred RAF timing in startTracking"
+      ]
+    },
+    {
+      "id": "arch-001",
+      "kind": "architectural_invariant",
+      "subject": "retained DOM ↔ immediate-mode canvas handoff",
+      "statement": "The live hero DOM element and the transition canvas are distinct rendering domains. transitionKernel switches between them via hideHero+showCanvas (enter particle domain) and _revealHandoff (return to DOM domain). They must never be simultaneously visible outside the cross-fade window.",
+      "observable_effect": "No visual double-rendering. The hero element is hidden exactly during particle animation and revealed only after the canvas fades out.",
+      "evidence": [
+        { "type": "source", "ref": "js/spa/transitionKernel.js:46-66" },
+        { "type": "source", "ref": "js/spa/transitionKernel.js:70-87" },
+        { "type": "source", "ref": "js/spa/transitionKernel.js:105-108" }
+      ],
+      "confidence": 0.97,
+      "proof_class": "contract_backed",
+      "invalidated_by": [
+        "any code that shows the hero element while the canvas is also displayed with opacity > 0, outside the cross-fade transition",
+        "any new rendering domain added without a corresponding hide/show operator in transitionKernel"
+      ]
+    }
+  ],
+  "transform_laws": [
+    {
+      "id": "tl-01",
+      "name": "dead-catch elimination",
+      "statement": "A try/catch around Promise.all([...inputs]) is removable without trace divergence if every input promise satisfies surf-001 or surf-002.",
+      "requires_genes": ["surf-001", "surf-002"],
+      "witness": "Pass 3: _buildSurfacePair try/catch removed. appKernel.js:84-87"
+    },
+    {
+      "id": "tl-02",
+      "name": "dead-export elimination",
+      "statement": "An export keyword on a function is removable if zero modules outside the file import that name.",
+      "requires_genes": ["nav-001"],
+      "witness": "Pass 3: navModel.js getAvailableSections/getNextTarget/getPrevTarget unexported."
+    },
+    {
+      "id": "tl-03",
+      "name": "ownership consolidation",
+      "statement": "A direct DOM mutation in module A is movable to module B if B already owns that DOM subtree per the ownership genome, and the mutation is functionally symmetric to an existing operator in B.",
+      "requires_genes": ["trans-002"],
+      "witness": "Pass 3: cancelSlingshot inline heroEl.style.* replaced with transitionKernel.showHero()."
+    },
+    {
+      "id": "tl-04",
+      "name": "phenotype extraction",
+      "statement": "Two code paths are collapsible into a shared helper if their runtime traces are equivalent under the behavioral genes, differing only in a hook parameter (e.g., onReveal callback).",
+      "requires_genes": ["trans-001", "trans-003"],
+      "witness": "Pass 2: closeOverlayWithTransition + exitGameToCurrentItem collapsed into _exitCurrentContextWithTransition."
+    },
+    {
+      "id": "tl-05",
+      "name": "render target canonicalization",
+      "statement": "Any direct call to heroRenderer.renderHeroDOM(si, ii) outside _renderTarget is replaceable with _renderTarget(si, ii) if the caller also needs nav sync, or removable if nav sync is provably up-to-date at that point.",
+      "requires_genes": ["render-001"],
+      "witness": "Pass 2: hardcoded game-enter flow's mount call replaced with _renderTarget(_si, _ii)."
+    }
+  ]
+}
