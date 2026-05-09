@@ -914,3 +914,63 @@ shouldSuppressTap()  → boolean
 8. All external link opens use `window.open(url, '_blank', 'noopener,noreferrer')` with `newWindow.opener = null`.
 9. Slingshot tap fires overlay/link action for the current item; does nothing if overlay suppresses taps.
 10. Keyboard arrow keys use a chained timing window (`DESKTOP_CHAIN_WINDOW_MS = 260ms`) to select `timingProfile: 'chained'` for rapid key-repeat navigation.
+
+---
+
+## Semantic genome and static-recompiler tooling
+
+`js/spa/semantic-genome.json` is the machine-readable contract that makes this codebase safe to recompile with an LLM. It records:
+
+- **observables** — what must survive any transformation
+- **phase grammar** — valid runtime states
+- **genes** — named behavioral invariants, each with evidence links, confidence scores, and invalidation conditions
+- **transform laws** — categories of refactor that are behavior-preserving when their required genes are verified
+
+### Scripts
+
+```
+node scripts/check-semantic-genome.js
+```
+Primary checker for `semantic-genome.json`. Validates:
+
+- JSON parseability
+- required top-level shape (`version`, `observables`, `phase_grammar`, `genes`, `transform_laws`)
+- per-gene required fields (`id`, `kind`, `subject`, `statement`, `observable_effect`, `evidence`, `confidence`, `proof_class`, `invalidated_by`)
+- evidence references (repo-internal path, file existence, optional line-range plausibility, and subject-text plausibility checks)
+- transform-law references to existing gene IDs
+
+`node scripts/check-genome.js` remains as a compatibility alias that forwards to `check-semantic-genome.js`.
+
+```
+node scripts/check-semantic-genome.js --changed
+```
+Impact mode. Detects changed files relative to `main` (or falls back to `HEAD~1`) and reports:
+
+- changed files
+- affected genes (evidence refs touching those files)
+- affected transform laws (laws requiring affected genes)
+- warnings for potentially stale/weak evidence
+
+```
+node scripts/export-genome-prompt.js [--out <file>]
+```
+Exports the genome as a compact Markdown contract. Pipe to a file and prepend it to an LLM recompilation prompt so the agent knows exactly which invariants to preserve.
+
+### Genome proof classes
+
+| `proof_class`    | Meaning |
+|------------------|---------|
+| `contract_backed`| Invariant is enforced by explicit try/catch, finally, or structural contract in the cited source lines. |
+| `violated`       | Invariant is the **target** state; the current code has a known deviation listed in `violated_at`. Fix it by following the `remediation` hint. |
+| `aspirational`   | Invariant is intended but not yet evidenced. |
+
+### LLM recompilation workflow
+
+1. Run `check-semantic-genome.js` to confirm the genome is in sync with the source.
+2. Run `export-genome-prompt.js --out genome-prompt.md` to generate the compact contract.
+3. Prepend `genome-prompt.md` to your LLM prompt, then describe the transformation.
+4. Optionally run `check-semantic-genome.js --changed` before and after a refactor to see which genes/laws are impacted by changed files.
+5. After the transformation, run `check-semantic-genome.js` again; update evidence line numbers in the genome if they shifted, then set `last_verified_commit` to the commit you verified.
+6. If checker warnings show weak or stale evidence, add/refresh source refs so each touched gene remains mechanically traceable.
+7. To achieve a violated gene, apply the `remediation` hint, confirm the violation is gone from the source, change `proof_class` to `contract_backed`, and remove `violated_at`.
+8. When a verification pass is complete, update `last_verified_commit` in `semantic-genome.json` to the commit used for verification.
