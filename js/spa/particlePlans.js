@@ -33,14 +33,12 @@ function easeOutBack(t) {
  * @param {{ canvas: HTMLCanvasElement, width: number, height: number }} toRegion
  * @param {number} canvasWidth   — size of the transition canvas
  * @param {number} canvasHeight
- * @param {'default'|'chained'} [timingProfile]
  * @returns {{ particles: Array, phases: Array }}
  */
-export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvasHeight, timingProfile = 'default') {
-  const chained = timingProfile === 'chained';
-  const EXPLODE_DURATION = chained ?  80 : 120;
-  const REFORM_DURATION  = chained ? 160 : 230;
-  const EXPLODE_RADIUS   = Math.min(canvasWidth, canvasHeight) * (chained ? 0.34 : 0.4);
+export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvasHeight) {
+  const EXPLODE_DURATION = 120;
+  const REFORM_DURATION  = 230;
+  const EXPLODE_RADIUS   = Math.min(canvasWidth, canvasHeight) * 0.4;
   const PARTICLE_COUNT   = Math.floor(
     (Math.max(fromRegion.width, toRegion.width) * Math.max(fromRegion.height, toRegion.height)) /
     (PARTICLE_SIZE * PARTICLE_SIZE)
@@ -123,19 +121,16 @@ export function buildExplodeReformPlan(fromRegion, toRegion, canvasWidth, canvas
 /**
  * Build a slingshot pull-reform plan.
  * Particles start from their last pulled preview positions and converge onto the target hero.
- * Optionally includes a snap-back phase if `fromParticlesBase` is provided.
  *
  * @param {Array<{x: number, y: number, color: string}>} pulledParticles   Last preview frame
  * @param {{ canvas: HTMLCanvasElement, width: number, height: number }} toRegion
  * @param {number} canvasWidth
  * @param {number} canvasHeight
- * @param {Array<{x: number, y: number, color: string}>|null} [fromParticlesBase]
  * @returns {{ particles: Array, phases: Array } | null}
  */
-export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canvasHeight, fromParticlesBase = null) {
+export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canvasHeight) {
   if (!pulledParticles?.length) return null;
 
-  const SNAP_DURATION   =  80;
   const REFORM_DURATION = 270;
 
   const rawTo = sampleParticles(toRegion, canvasWidth, canvasHeight);
@@ -143,49 +138,19 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
 
   const N      = Math.max(pulledParticles.length, rawTo.length);
   const toPool = shuffle(sampleByCoverage(rawTo, N));
-  const hasSnap = fromParticlesBase?.length > 0;
 
   const particles = [];
   for (let i = 0; i < N; i++) {
     const pulled = pulledParticles[i % pulledParticles.length];
     const end    = toPool[i % toPool.length];
-    const mid    = hasSnap ? fromParticlesBase[i % fromParticlesBase.length] : pulled;
     particles.push({
       x0: pulled.x, y0: pulled.y, c0: parseRgba(pulled.color),
-      xm: mid.x,    ym: mid.y,
       x1: end.x,    y1: end.y,   c1: parseRgba(end.color),
       ze: Math.random() * EXPLODE_Z_RANGE * 0.5 - EXPLODE_Z_RANGE * 0.25
     });
   }
 
-  const phases = [];
-
-  if (hasSnap) {
-    phases.push({
-      duration: SNAP_DURATION,
-      tick(elapsed, pts, ctx) {
-        const raw  = elapsed / SNAP_DURATION;
-        const ease = 1 - (1 - raw) * (1 - raw);
-        const cx   = ctx.canvas.width  / 2;
-        const cy   = ctx.canvas.height / 2;
-        for (const pt of pts) {
-          const x = pt.x0 + (pt.xm - pt.x0) * ease;
-          const y = pt.y0 + (pt.ym - pt.y0) * ease;
-          // z starts at ze and converges toward 0 as snap progresses
-          const z = pt.ze * (1 - ease);
-          const { px, py, scale } = projectParticle(x, y, z, cx, cy);
-          ctx.globalAlpha = Math.max(MIN_DEPTH_ALPHA, Math.min(1, scale));
-          ctx.fillStyle = `rgba(${pt.c0[0]},${pt.c0[1]},${pt.c0[2]},${pt.c0[3]})`;
-          ctx.beginPath();
-          ctx.arc(px, py, (PARTICLE_SIZE / 2) * scale, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-      }
-    });
-  }
-
-  phases.push({
+  const phases = [{
     duration: REFORM_DURATION,
     tick(elapsed, pts, ctx) {
       const p     = Math.min(elapsed / REFORM_DURATION, 1);
@@ -193,8 +158,8 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
       const cx    = ctx.canvas.width  / 2;
       const cy    = ctx.canvas.height / 2;
       for (const pt of pts) {
-        const x = pt.xm + (pt.x1 - pt.xm) * moveP;
-        const y = pt.ym + (pt.y1 - pt.ym) * moveP;
+        const x = pt.x0 + (pt.x1 - pt.x0) * moveP;
+        const y = pt.y0 + (pt.y1 - pt.y0) * moveP;
         // z starts at ze and returns to 0 as reform completes
         const z = pt.ze * (1 - p);
         const { px, py, scale } = projectParticle(x, y, z, cx, cy);
@@ -206,7 +171,7 @@ export function buildPullReformPlan(pulledParticles, toRegion, canvasWidth, canv
       }
       ctx.globalAlpha = 1;
     }
-  });
+  }];
 
   return { particles, phases };
 }

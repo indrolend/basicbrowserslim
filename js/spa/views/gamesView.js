@@ -4,37 +4,50 @@
 (function() {
   window.__SPA_Views = window.__SPA_Views || {};
 
-  window.__SPA_Views['games'] = {
-    mount(itemId, containerEl) {
-      containerEl.innerHTML = '';
-      const el = document.createElement('div');
-      el.className = 'asy-engine-hero';
-      const motif = document.createElement('div');
-      motif.className = 'asy-motif';
-      motif.textContent = 'Asymptote Engine';
-      el.appendChild(motif);
+  function createGameHeroElement({ hidden = false, includeAction = false } = {}) {
+    const el = document.createElement('div');
+    el.className = 'asy-engine-hero';
+    if (hidden) {
+      el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;width:320px;min-height:320px;';
+    }
+
+    const motif = document.createElement('div');
+    motif.className = 'asy-motif';
+    motif.textContent = 'Asymptote Engine';
+    el.appendChild(motif);
+
+    if (includeAction) {
       const action = document.createElement('button');
       action.type = 'button';
       action.className = 'asy-hero-action';
       action.textContent = 'Play';
       action.dataset.action = 'enter-game';
       el.appendChild(action);
-      containerEl.appendChild(el);
+    }
+
+    return el;
+  }
+
+  function buildGameHeroProbe() {
+    const element = createGameHeroElement({ hidden: true });
+    document.body.appendChild(element);
+    return {
+      element,
+      cleanup() { element.remove(); }
+    };
+  }
+
+  window.__SPA_Views['games'] = {
+    mount(itemId, containerEl) {
+      containerEl.innerHTML = '';
+      containerEl.appendChild(createGameHeroElement({ includeAction: true }));
     },
 
     onActivate(_itemId) {},
     onDeactivate(_itemId) {},
 
     buildHeroProbe(itemId, containerEl) {
-      const el = document.createElement('div');
-      el.className = 'asy-engine-hero';
-      el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;width:320px;min-height:320px;';
-      const motif = document.createElement('div');
-      motif.className = 'asy-motif';
-      motif.textContent = 'Asymptote Engine';
-      el.appendChild(motif);
-      document.body.appendChild(el);
-      return { element: el, cleanup() { el.remove(); } };
+      return buildGameHeroProbe();
     }
   };
 
@@ -54,15 +67,7 @@
       gameItemIdx = itemIdx;
     },
     buildHeroProbe(sectionIdx, itemIdx) {
-      const el = document.createElement('div');
-      el.className = 'asy-engine-hero';
-      el.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;pointer-events:none;width:320px;min-height:320px;';
-      const motif = document.createElement('div');
-      motif.className = 'asy-motif';
-      motif.textContent = 'Asymptote Engine';
-      el.appendChild(motif);
-      document.body.appendChild(el);
-      return { element: el, cleanup() { el.remove(); } };
+      return buildGameHeroProbe();
     },
     onTap() {}
   };

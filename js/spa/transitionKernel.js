@@ -60,6 +60,11 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     if (heroEl) { heroEl.style.visibility = 'hidden'; heroEl.style.opacity = '0'; heroEl.style.transition = ''; }
   }
 
+  function showHero() {
+    const heroEl = heroContainer.firstElementChild;
+    if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
+  }
+
   // ─── Reveal handoff ───────────────────────────────────────────────────────
 
   async function _revealHandoff(onBeforeReveal) {
@@ -89,7 +94,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
    *
    * @param {{ canvas, width, height }|null} fromSurface
    * @param {{ canvas, width, height }|null} toSurface
-   * @param {{ timingProfile?: string, onBeforeReveal?: Function }} [opts]
+   * @param {{ onBeforeReveal?: Function }} [opts]
    */
   async function runTransition(fromSurface, toSurface, opts = {}) {
     if (!fromSurface || !toSurface) {
@@ -103,15 +108,18 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
 
     const plan = buildExplodeReformPlan(
       fromSurface, toSurface,
-      transitionCanvas.width, transitionCanvas.height,
-      opts.timingProfile || 'default'
+      transitionCanvas.width, transitionCanvas.height
     );
 
     try {
-      await new Promise(resolve => runParticleAnimation(transitionCtx, plan, resolve));
+      await _runPlan(plan);
     } finally {
       await _revealHandoff(opts.onBeforeReveal);
     }
+  }
+
+  function _runPlan(plan) {
+    return new Promise(resolve => runParticleAnimation(transitionCtx, plan, resolve));
   }
 
   // ─── Slingshot pull-preview ───────────────────────────────────────────────
@@ -285,12 +293,12 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
       : null;
 
     const plan = (remapped || syntheticPulled)
-      ? buildPullReformPlan(remapped || syntheticPulled, toSurface, cw, ch, null)
+      ? buildPullReformPlan(remapped || syntheticPulled, toSurface, cw, ch)
       : null;
 
-    const finalPlan = plan || buildExplodeReformPlan(fromSurface, toSurface, cw, ch, 'default');
+    const finalPlan = plan || buildExplodeReformPlan(fromSurface, toSurface, cw, ch);
 
-    await new Promise(resolve => runParticleAnimation(transitionCtx, finalPlan, resolve));
+    await _runPlan(finalPlan);
     await _revealHandoff(onBeforeReveal);
   }
 
@@ -299,6 +307,7 @@ export function createTransitionKernel({ transitionCanvas, transitionCtx, heroCo
     showCanvas,
     hideCanvas,
     hideHero,
+    showHero,
     runTransition,
     resetPullPreview,
     renderPullPreview,
