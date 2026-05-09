@@ -5,7 +5,6 @@
 
 import { rasterizeHero }         from './js/spa/rasterizeHero.js';
 import { initSlingshot }         from './js/spa/slingshotGesture.js';
-import { getSection, getItem }   from './js/spa/spaData.js';
 import { createNavRenderer }     from './js/spa/renderNav.js';
 import { createHeroRenderer }    from './js/spa/renderHero.js';
 import { createSurfaceManager }  from './js/spa/surfaceManager.js';
@@ -16,7 +15,6 @@ import { createAppKernel }       from './js/spa/appKernel.js';
 
 const heroContainer    = document.getElementById('spa-hero-container');
 const transitionCanvas = document.getElementById('transition-canvas');
-const transitionCtx    = transitionCanvas.getContext('2d');
 const dotsContainer    = document.getElementById('spa-dots');
 
 // ─── Module instances ─────────────────────────────────────────────────────────
@@ -37,7 +35,7 @@ const surfaceManager = createSurfaceManager({
 });
 
 const transitionKernel = createTransitionKernel({
-  transitionCanvas, transitionCtx, heroContainer
+  transitionCanvas, heroContainer
 });
 
 kernel = createAppKernel({
@@ -125,12 +123,7 @@ window.addEventListener('keydown', (e) => {
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
-kernel.render();
-
-const _initSection = getSection(0), _initItem = getItem(0, 0);
-if (_initSection && _initItem) try { window.__SPA_Views?.[_initSection.id]?.onActivate?.(_initItem.id); } catch (_) {}
-
-surfaceManager.startTracking(0, 0);
+kernel.start();
 
 initSlingshot(heroContainer, {
   onTap:     () => kernel.onTap(),

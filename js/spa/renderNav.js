@@ -8,15 +8,20 @@
 import { SPA_SECTIONS, getSection } from './spaData.js';
 
 export function createNavRenderer({ dotsContainer }) {
+  let sectionNav = document.getElementById('spa-section-nav');
+
+  function getSectionNav() {
+    if (!sectionNav) {
+      sectionNav = document.createElement('nav');
+      sectionNav.id = 'spa-section-nav';
+      sectionNav.setAttribute('aria-label', 'Sections');
+      document.body.insertBefore(sectionNav, document.body.firstChild);
+    }
+    return sectionNav;
+  }
 
   function updateSectionNav(si, homeSectionLocked) {
-    let nav = document.getElementById('spa-section-nav');
-    if (!nav) {
-      nav = document.createElement('nav');
-      nav.id = 'spa-section-nav';
-      nav.setAttribute('aria-label', 'Sections');
-      document.body.insertBefore(nav, document.body.firstChild);
-    }
+    const nav = getSectionNav();
     nav.innerHTML = '';
     const sectionsToShow = homeSectionLocked
       ? SPA_SECTIONS.filter((_, i) => i !== 0)

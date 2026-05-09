@@ -1,58 +1,21 @@
-// surfaceManager.js — hero surface rasterization, tracking, and caching
+// surfaceManager.js — on-demand hero surface rasterization
 //
 // Replaces heroSurface.js with an explicit contract name.
 //
 // Owns:
-//   - One-shot tracking of the live hero surface when idle
-//   - Building on-demand surfaces for 'from' and 'to' phases
-//   - Caching the most recent surface per hero key
+//   - Building surfaces for 'from' and 'to' phases only when a transition asks
+//   - Resolving live DOM/probe/text/image inputs into rasterizable surfaces
 //
 // Does NOT own: particle sampling, canvas alignment, or transition lifecycle.
 //
 // Usage:
 //   const sm = createSurfaceManager({ heroContainer, rasterizeHero });
-//   sm.startTracking(si, ii);
-//   sm.stopTracking();
 //   const surface = await sm.buildSurface(si, ii, 'from');
 
-import { getSection, getItem, getHeroSpec, getHeroSurfaceKey, isGifHero } from './spaData.js';
+import { getSection, getItem, getHeroSpec } from './spaData.js';
 
 export function createSurfaceManager({ heroContainer, rasterizeHero }) {
-  let _currentSurface    = null;
-  let _currentKey        = null;
-  let _trackingKey       = null;
-  let _deferredPrimeFrameId = 0;
-
-  function stopTracking() {
-    if (_deferredPrimeFrameId) {
-      cancelAnimationFrame(_deferredPrimeFrameId);
-      _deferredPrimeFrameId = 0;
-    }
-    _trackingKey = null;
-  }
-
-  function startTracking(si, ii) {
-    stopTracking();
-    const key = getHeroSurfaceKey(si, ii);
-    _trackingKey = key;
-
-    // GIF and procedural heroes: no surface cache needed
-    if (isGifHero(si, ii) || window.__SPA_Views?.[getSection(si)?.id]?.buildHeroProbe) {
-      _currentSurface = null;
-      _currentKey     = null;
-      return;
-    }
-
-    _deferredPrimeFrameId = requestAnimationFrame(() => {
-      _deferredPrimeFrameId = 0;
-      if (_trackingKey !== key) return;
-      buildSurface(si, ii, 'from').then(s => {
-        if (_trackingKey !== key) return;
-        _currentSurface = s;
-        _currentKey     = key;
-      }).catch(() => {});
-    });
-  }
+  const _overlayRoot = document.getElementById('spa-overlay-root');
 
   function _buildRenderInput(si, ii, phase) {
     const section = getSection(si);
@@ -79,9 +42,8 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
       if (liveHero) return { type: 'textElement', element: liveHero };
 
       // Overlay inline element
-      const overlayRoot = document.getElementById('spa-overlay-root');
-      if (overlayRoot?.style.display !== 'none') {
-        const inlineEl = overlayRoot.querySelector('.spa-overlay--inline');
+      if (_overlayRoot?.style.display !== 'none') {
+        const inlineEl = _overlayRoot.querySelector('.spa-overlay--inline');
         if (inlineEl) return { type: 'textElement', element: inlineEl };
       }
 
@@ -121,10 +83,6 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
   }
 
   async function buildSurface(si, ii, phase) {
-    const key    = getHeroSurfaceKey(si, ii);
-    const cached = phase === 'from' && _currentSurface && _currentKey === key && !isGifHero(si, ii);
-    if (cached) return _currentSurface;
-
     const input = _buildRenderInput(si, ii, phase);
     if (!input) return null;
     try {
@@ -137,5 +95,5 @@ export function createSurfaceManager({ heroContainer, rasterizeHero }) {
     }
   }
 
-  return { startTracking, stopTracking, buildSurface };
+  return { buildSurface };
 }
