@@ -11,8 +11,7 @@ window.__INDROLEND_ROUTES__ = {
     'music/appleMusic': { clickAction: 'https://music.apple.com/us/artist/indrolend' },
     'music/bandcamp':   { clickAction: 'https://indrolend.bandcamp.com' },
     'music/soundcloud': { clickAction: 'overlay:soundcloud' },
-    // Games
-    'games/asymptote':  { clickAction: 'overlay:asymptote' },
+    // Games items have no clickAction — gamesView handles hero rendering and actions
     // Transition Lab
     'transitionLab/labTextStart':      { clickAction: null },
     'transitionLab/labImageNormal':    { clickAction: null },
@@ -52,7 +51,10 @@ export const SPA_SECTIONS = [
   {
     id: 'games', label: 'Games',
     items: [
-      { id: 'asymptote', label: 'Asymptote Engine', hero: { kind: 'text', text: 'Asymptote Engine' } }
+      { id: 'understand', label: 'Understand', hero: { kind: 'text', text: 'Asymptote' } },
+      { id: 'generate',   label: 'Generate',   hero: { kind: 'text', text: 'Generators' } },
+      { id: 'upgrade',    label: 'Upgrade',    hero: { kind: 'text', text: 'Upgrades' } },
+      { id: 'collapse',   label: 'Collapse',   hero: { kind: 'text', text: 'Sacrifice' } }
     ]
   },
   {

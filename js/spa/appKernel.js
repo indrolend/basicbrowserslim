@@ -38,7 +38,6 @@ export function createAppKernel({
     // 'idle' | 'transitioning' | 'pulling'
     phase: 'idle',
     homeSectionLocked: false,
-    isGameActive: false,
     queuedTarget: null
   };
 
@@ -505,76 +504,11 @@ export function createAppKernel({
     });
   }
 
-  // ─── Game mode lifecycle ──────────────────────────────────────────────────
-
-  async function enterCurrentGameWithTransition() {
-    if (_isTransitioning() || _isPulling()) return;
-    await _ensureRuntimeFor(state.si);
-    const gameNav = window.__SPA_GameNav;
-    if (!gameNav) return;
-    const probe = gameNav.buildHeroProbe?.(state.si, state.ii);
-    if (!probe) return;
-
-    await _withTransition(async () => {
-      await _runSubsystemTransform({
-        fromTask: () => _buildSurface(state.si, state.ii, 'from'),
-        toTask: () => _rasterizeProbeSurface(probe),
-        reveal: async () => {
-          state.isGameActive = true;
-          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
-        }
-      });
-    });
-  }
-
-  async function exitGameToCurrentItem() {
-    if (!state.isGameActive) return;
-    if (_isTransitioning() || _isPulling()) return;
-
-    await _withTransition(async () => {
-      await _runSubsystemTransform({
-        fromTask: () => _buildSurface(state.si, state.ii, 'from'),
-        toTask: () => _buildSurface(state.si, state.ii, 'to'),
-        reveal: async () => {
-          state.isGameActive = false;
-          _commitView(state.si, state.ii, { nav: false });
-        }
-      });
-    });
-  }
-
-  async function gameNavigate(direction) {
-    await _ensureRuntimeFor(state.si);
-    const gameNav = window.__SPA_GameNav;
-    if (!gameNav || _isTransitioning() || _isPulling()) return;
-    const from = gameNav.getFromTarget?.();
-    const to   = gameNav.getToTarget?.(direction);
-    if (!from || !to) return;
-
-    const fromProbe = gameNav.buildHeroProbe?.(from.sectionIdx, from.itemIdx);
-    const toProbe   = gameNav.buildHeroProbe?.(to.sectionIdx,   to.itemIdx);
-    if (!fromProbe || !toProbe) { fromProbe?.cleanup?.(); toProbe?.cleanup?.(); return; }
-
-    await _withTransition(async () => {
-      await _runSubsystemTransform({
-        fromTask: () => _rasterizeProbeSurface(fromProbe),
-        toTask: () => _rasterizeProbeSurface(toProbe),
-        reveal: async () => {
-          _commitPosition(to.sectionIdx, to.itemIdx);
-          _commitView(state.si, state.ii, { hero: false });
-          gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
-          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
-        }
-      });
-    });
-  }
-
   // ─── Slingshot callbacks ──────────────────────────────────────────────────
 
   function onTap() {
     if (window.__SPA_Overlay?.shouldSuppressTap?.()) return;
     if (window.__SPA_Overlay?.isOpen()) { void closeOverlayWithTransition(); return; }
-    if (state.isGameActive) { window.__SPA_GameNav?.onTap?.(); return; }
     const action = getClickAction(state.si, state.ii);
     if (action) _handleHeroAction(action);
   }
@@ -588,15 +522,9 @@ export function createAppKernel({
     if (_isPulling()) return false;
 
     let targetSi, targetIi;
-    if (state.isGameActive && window.__SPA_GameNav) {
-      const t = window.__SPA_GameNav.getToTarget?.(direction);
-      if (!t) return false;
-      targetSi = t.sectionIdx; targetIi = t.itemIdx;
-    } else {
-      const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
-      if (!t) return false;
-      targetSi = t.sectionIdx; targetIi = t.itemIdx;
-    }
+    const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
+    if (!t) return false;
+    targetSi = t.sectionIdx; targetIi = t.itemIdx;
 
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
@@ -654,7 +582,6 @@ export function createAppKernel({
           await onBeforeReveal();
         }
       }), () => _commitPositionAndView(targetSi, targetIi), () => _commitPositionAndView(targetSi, targetIi));
-      if (state.isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(state.si, state.ii);
       _activate(state.si, state.ii);
     } catch (_) {}
 
@@ -684,11 +611,6 @@ export function createAppKernel({
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   function navigate(direction) {
-    if (state.isGameActive && window.__SPA_GameNav) {
-      const to = window.__SPA_GameNav.getToTarget?.(direction);
-      const isDifferentPosition = to && (to.sectionIdx !== state.si || to.itemIdx !== state.ii);
-      if (isDifferentPosition) { void gameNavigate(direction); return; }
-    }
     const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
@@ -710,16 +632,6 @@ export function createAppKernel({
     if (intent === 'hero-action') {
       const clickAction = payload.clickAction;
       if (typeof clickAction === 'string' && clickAction.length > 0) _handleHeroAction(clickAction);
-      return;
-    }
-
-    if (intent === 'enter-game') {
-      void enterCurrentGameWithTransition();
-      return;
-    }
-
-    if (intent === 'exit-game') {
-      void exitGameToCurrentItem();
       return;
     }
 
@@ -785,10 +697,6 @@ export function createAppKernel({
     // Overlay
     openOverlayWithTransition,
     closeOverlayWithTransition,
-    // Game mode
-    enterCurrentGameWithTransition,
-    exitGameToCurrentItem,
-    gameNavigate,
     // State accessors
     getSi() { return state.si; },
     getIi() { return state.ii; },

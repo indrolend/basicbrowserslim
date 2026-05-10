@@ -34,8 +34,6 @@ const kernel = createAppKernel({
 // ─── Window API ───────────────────────────────────────────────────────────────
 
 window.__SPA_Control = {
-  exitGameToCurrentItem:             () => kernel.dispatchInputIntent('exit-game'),
-  enterCurrentGame:                  () => kernel.dispatchInputIntent('enter-game'),
   restoreCurrentItemHero:            () => kernel.dispatchInputIntent('restore-current-item-hero'),
   closeCurrentOverlayWithTransition: () => kernel.dispatchInputIntent('close-overlay'),
   cancelSlingshot:                   () => kernel.dispatchInputIntent('cancel-slingshot')
@@ -77,10 +75,6 @@ function dispatchActionElement(el) {
     kernel.dispatchInputIntent('hero-action', { clickAction });
     return;
   }
-
-  if (action === 'enter-game') {
-    kernel.dispatchInputIntent('enter-game');
-  }
 }
 
 document.addEventListener('click', (e) => {
@@ -101,7 +95,6 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Escape') {
-    kernel.dispatchInputIntent('exit-game');
     kernel.dispatchInputIntent('close-overlay');
     return;
   }
