@@ -181,8 +181,9 @@ export function createAppKernel({
     const frames = animator._frames;
     if (!frames || !frames.length) return;
 
-    // Clamp factor to [-1, 1]: +1 = max speed-up, -1 = max slow-down.
-    const clampedFactor = Math.max(-1, Math.min(1, factor));
+    // Clamp factor to [0, 1]: magnitude-only cadence compression.
+    // Direction does not affect timing sign in this patch.
+    const clampedFactor = Math.max(0, Math.min(1, Math.abs(factor)));
 
     // Snapshot original frame delays (gifler stores delay in centiseconds).
     const origDelays = frames.map(f => f.delay);
@@ -650,10 +651,10 @@ export function createAppKernel({
     } else {
       _pullParticles = null;
     }
-    // Track pull direction+magnitude for GIF frame-rate momentum on reveal.
-    // factor > 0 = pulled toward next (GIF speeds up); < 0 = toward prev (slows down).
+    // Track pull force magnitude for GIF frame cadence compression on reveal.
+    // Direction is intentionally ignored; both directions accelerate first.
     if (Math.abs(pullVector.x) > 0.1) {
-      _momentumFactor = Math.sign(pullVector.x) * pullNormalized;
+      _momentumFactor = Math.max(0, Math.min(1, pullNormalized));
     }
   }
 
