@@ -54,6 +54,11 @@ export function createAppKernel({
   let _activeGifPlayer     = null;
   let _gifRestartSeq       = 0;
 
+  // ─── GIF momentum state ───────────────────────────────────────────────────
+  // Tracks the horizontal pull direction so _renderHeroDOM can pre-lean the
+  // incoming GIF hero. 0 = no momentum, +1 = next, -1 = prev.
+  let _momentumPullDir     = 0;
+
   // ─── State helpers ────────────────────────────────────────────────────────
 
   function _isTransitioning() { return state.phase !== 'idle'; }
@@ -244,6 +249,30 @@ export function createAppKernel({
     }
 
     heroContainer.appendChild(wrapper);
+
+    // GIF momentum settle: if a directional slingshot pull just completed, pre-lean
+    // the wrapper in the pull direction so the hero appears to arrive with rotational
+    // momentum, then settle back to upright via CSS transition.
+    if (_momentumPullDir !== 0 && heroSpec.kind === 'image' && _isGifSrc(heroSpec.src)) {
+      const dir = _momentumPullDir;
+      _momentumPullDir = 0;
+      wrapper.style.transformOrigin = '50% 70%';
+      wrapper.style.transform = `rotate(${4 * dir}deg) translateX(${8 * dir}px) scale(0.97)`;
+      // Schedule settle after _revealHandoff clears its own transition (~90 ms).
+      // Double-rAF ensures at least one paint cycle before starting the spring-back.
+      setTimeout(() => {
+        if (!wrapper.isConnected) return;
+        requestAnimationFrame(() => {
+          if (!wrapper.isConnected) return;
+          wrapper.style.transition = 'transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1)';
+          wrapper.style.transform  = '';
+          setTimeout(() => {
+            if (!wrapper.isConnected) return;
+            wrapper.style.transition = '';
+          }, 530);
+        });
+      }, 95);
+    }
   }
 
   function _buildRenderInput(si, ii, phase) {
@@ -528,6 +557,7 @@ export function createAppKernel({
 
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
+    _momentumPullDir = 0;
     _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
@@ -556,6 +586,10 @@ export function createAppKernel({
       _pullCanvasH   = result.canvasH;
     } else {
       _pullParticles = null;
+    }
+    // Track pull direction for GIF momentum settle on reveal
+    if (Math.abs(pullVector.x) > 0.1) {
+      _momentumPullDir = pullVector.x > 0 ? 1 : -1;
     }
   }
 
@@ -592,6 +626,7 @@ export function createAppKernel({
   function onCancel() { cancelSlingshot(); }
 
   function cancelSlingshot() {
+    _momentumPullDir = 0;
     transitionKernel.hideCanvas();
     const heroEl = heroContainer.firstElementChild;
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
