@@ -1,7 +1,5 @@
 // spaData.js — SPA section/item data, constants, and pure data accessors
 
-// ─── Routes and click actions (inlined from routes.js) ───────────────────────
-
 window.__INDROLEND_ROUTES__ = {
   items: {
     // Social

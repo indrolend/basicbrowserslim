@@ -113,7 +113,7 @@ window.addEventListener('keydown', (e) => {
   dispatchActionElement(active);
 });
 
-// ─── Slingshot gesture (inlined from slingshotGesture.js) ────────────────────
+// ─── Slingshot gesture ───────────────────────────────────────────────────────
 
 const LOCK_THRESHOLD_PX = 15;  // minimum drag before direction is committed
 const MAX_PULL_DISTANCE  = 120; // px at which pullNormalized reaches 1.0

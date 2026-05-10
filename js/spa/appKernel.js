@@ -60,7 +60,7 @@ export function createAppKernel({
   function _isTransitioning() { return state.phase !== 'idle'; }
   function _isPulling()       { return state.phase === 'pulling'; }
 
-  // ─── Navigation helpers (inlined from navModel.js) ────────────────────────
+  // ─── Navigation helpers ───────────────────────────────────────────────────
 
   function _getAvailableSections(homeSectionLocked) {
     return homeSectionLocked ? SPA_SECTIONS.filter((_, i) => i !== 0) : SPA_SECTIONS;
@@ -93,7 +93,7 @@ export function createAppKernel({
       : _getPrevTarget(si, ii, homeSectionLocked);
   }
 
-  // ─── Render helpers (inlined from renderNav.js and renderHero.js) ────────
+  // ─── Render helpers ───────────────────────────────────────────────────────
 
   function _getSectionNav() {
     if (!_sectionNav) {
