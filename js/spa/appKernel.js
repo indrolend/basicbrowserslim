@@ -181,17 +181,15 @@ export function createAppKernel({
     const frames = animator._frames;
     if (!frames || !frames.length) return;
 
+    // Clamp factor to [-1, 1]: +1 = max speed-up, -1 = max slow-down.
+    const clampedFactor = Math.max(-1, Math.min(1, factor));
+
     // Snapshot original frame delays (gifler stores delay in centiseconds).
     const origDelays = frames.map(f => f.delay);
 
-    // Show canvas in the hero layout; hide native <img>.
-    img.style.display = 'none';
-    gifCanvas.style.cssText =
-      'display:block;width:320px;height:320px;' +
-      'border-radius:16px;box-shadow:0 4px 32px #000a;max-width:100%;';
-
-    let current = factor;
+    let current = clampedFactor;
     let rafId;
+    let swapped = false;
 
     function applyDelays(f) {
       const mul = Math.pow(2, -f);
@@ -200,25 +198,50 @@ export function createAppKernel({
       }
     }
 
-    function restore() {
-      for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+    // Swap display from native <img> (uncontrollable speed) to gifCanvas.
+    // Waits for gifCanvas._gifReady so the first drawn frame is already there.
+    // Uses .spa-hero-image class so sizing/border-radius matches the img exactly.
+    function swapIn() {
+      img.style.display = 'none';
+      gifCanvas.style.cssText = ''; // clear position:absolute;left:-9999px override
+      gifCanvas.classList.add('spa-hero-image');
+      swapped = true;
+    }
+
+    function swapOut() {
+      if (!swapped) return;
+      gifCanvas.classList.remove('spa-hero-image');
       gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
       if (img.isConnected) img.style.display = '';
-      _gifMomentumCancel = null;
+      swapped = false;
+    }
+
+    function restoreDelays() {
+      for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
     }
 
     function tick() {
-      if (!animator._running || !gifCanvas.isConnected || Math.abs(current) < 0.02) {
-        restore(); return;
+      if (!animator._running || !gifCanvas.isConnected) {
+        restoreDelays(); swapOut(); _gifMomentumCancel = null; return;
+      }
+      // Wait for gifler to render at least one frame before swapping to canvas.
+      if (!swapped) {
+        if (gifCanvas._gifReady) swapIn();
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      if (Math.abs(current) < 0.02) {
+        restoreDelays(); swapOut(); _gifMomentumCancel = null; return;
       }
       current *= 0.93;
       applyDelays(current);
       rafId = requestAnimationFrame(tick);
     }
 
+    // Apply initial delay scaling immediately so timing starts before swap.
     applyDelays(current);
     rafId = requestAnimationFrame(tick);
-    _gifMomentumCancel = () => { cancelAnimationFrame(rafId); restore(); };
+    _gifMomentumCancel = () => { cancelAnimationFrame(rafId); restoreDelays(); swapOut(); _gifMomentumCancel = null; };
   }
 
   function _renderHeroDOM(si, ii) {
