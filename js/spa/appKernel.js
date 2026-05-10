@@ -53,10 +53,10 @@ export function createAppKernel({
   let _sectionNav          = document.getElementById('spa-section-nav');
   let _activeGifPlayer     = null;
   let _gifRestartSeq       = 0;
+  let _prewarmedGif        = null;
 
   // ─── GIF momentum state ───────────────────────────────────────────────────
-  // Signed float -1..+1: positive = pull toward next, negative = pull toward prev.
-  // Consumed by _renderHeroDOM once per slingshot release.
+  // Unsigned pull-force magnitude [0..1], consumed once per slingshot release.
   let _momentumFactor      = 0;
   let _gifMomentumCancel   = null; // cancels an active frame-delay decay loop
 
@@ -166,6 +166,103 @@ export function createAppKernel({
     return `${base}${sep}spa_gif_restart=${Date.now()}_${_gifRestartSeq}${hash}`;
   }
 
+  function _getGifDelayScale(f) {
+    const amount = Math.max(0, Math.min(1, Math.abs(f)));
+    const curved = Math.pow(amount, 0.75);
+    return Math.max(0.3, Math.pow(3, -curved));
+  }
+
+  function _ensureGifOrigDelays(animator) {
+    const frames = animator?._frames;
+    if (!frames?.length) return null;
+    if (!Array.isArray(animator._spaOrigDelays) || animator._spaOrigDelays.length !== frames.length) {
+      animator._spaOrigDelays = frames.map((f) => f.delay);
+    }
+    return animator._spaOrigDelays;
+  }
+
+  function _applyGifCadenceCompression(animator, factor) {
+    const frames = animator?._frames;
+    const origDelays = _ensureGifOrigDelays(animator);
+    if (!frames?.length || !origDelays) return;
+    const mul = _getGifDelayScale(factor);
+    for (let i = 0; i < frames.length; i++) {
+      frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
+    }
+  }
+
+  function _restoreGifCadence(animator) {
+    const frames = animator?._frames;
+    const origDelays = animator?._spaOrigDelays;
+    if (!frames?.length || !origDelays?.length) return;
+    for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+  }
+
+  function _clearPrewarmedGif() {
+    if (!_prewarmedGif) return;
+    if (_activeGifPlayer !== _prewarmedGif.animator) {
+      try { _restoreGifCadence(_prewarmedGif.animator); } catch (_) {}
+      try { _prewarmedGif.animator?.stop?.(); } catch (_) {}
+    }
+    _prewarmedGif = null;
+  }
+
+  function _primeGifTargetForReveal(si, ii, momentumFactor) {
+    const heroSpec = getHeroSpec(si, ii);
+    if (heroSpec.kind !== 'image' || !_isGifSrc(heroSpec.src)) {
+      _clearPrewarmedGif();
+      return;
+    }
+
+    if (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii) {
+      if (momentumFactor > 0 && _prewarmedGif.animator) {
+        _applyGifCadenceCompression(_prewarmedGif.animator, momentumFactor);
+      }
+      return;
+    }
+
+    _clearPrewarmedGif();
+
+    const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
+    const img = document.createElement('img');
+    img.className = 'spa-hero-image';
+    img.src = gifRenderSrc;
+    img.width = 320;
+    img.height = 320;
+    img.style.objectFit = 'contain';
+    img.setAttribute('draggable', 'false');
+
+    const gifCanvas = document.createElement('canvas');
+    gifCanvas.className = 'spa-hero-canvas';
+    gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+    gifCanvas._gifReady = false;
+
+    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null };
+    _prewarmedGif = token;
+
+    ensureGifRuntime().then(() => {
+      if (_prewarmedGif !== token || typeof window.gifler !== 'function') return;
+      window.gifler(gifRenderSrc).get(function(animator) {
+        if (_prewarmedGif !== token) {
+          try { animator.stop(); } catch (_) {}
+          return;
+        }
+        token.animator = animator;
+        animator.onDrawFrame = function(ctx, frame) {
+          if (!frame?.buffer) return;
+          ctx.drawImage(frame.buffer, frame.x, frame.y);
+          gifCanvas._gifReady = true;
+        };
+        animator.animateInCanvas(gifCanvas);
+        _ensureGifOrigDelays(animator);
+        if (momentumFactor > 0) {
+          // Prewarm target cadence during transition so reveal inherits motion.
+          _applyGifCadenceCompression(animator, momentumFactor);
+        }
+      });
+    }).catch(() => {});
+  }
+
   // ─── GIF frame-rate momentum ─────────────────────────────────────────────
   //
   // After a slingshot release onto a GIF hero, we:
@@ -186,16 +283,14 @@ export function createAppKernel({
     const clampedFactor = Math.max(0, Math.min(1, Math.abs(factor)));
 
     // Snapshot original frame delays (gifler stores delay in centiseconds).
-    const origDelays = frames.map(f => f.delay);
+    const origDelays = _ensureGifOrigDelays(animator) || frames.map((f) => f.delay);
 
     let current = clampedFactor;
     let rafId;
     let swapped = false;
 
     function applyDelays(f) {
-      const amount = Math.max(0, Math.min(1, Math.abs(f)));
-      const curved = Math.pow(amount, 0.75);
-      const mul = Math.max(0.3, Math.pow(3, -curved));
+      const mul = _getGifDelayScale(f);
       for (let i = 0; i < frames.length; i++) {
         frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
       }
@@ -287,43 +382,68 @@ export function createAppKernel({
 
     if (heroSpec.kind === 'image') {
       if (_isGifSrc(heroSpec.src)) {
-        const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
-        const img = document.createElement('img');
-        img.className = 'spa-hero-image';
-        img.src       = gifRenderSrc;
-        img.width     = 320;
-        img.height    = 320;
-        img.style.objectFit = 'contain';
-        img.setAttribute('draggable', 'false');
-        wrapper.appendChild(img);
-
-        const gifCanvas = document.createElement('canvas');
-        gifCanvas.className = 'spa-hero-canvas';
-        gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
-        gifCanvas._gifReady = false;
-        wrapper.appendChild(gifCanvas);
         const capturedMomentum = _momentumFactor;
         _momentumFactor = 0;
-        ensureGifRuntime().then(() => {
-          if (!gifCanvas.isConnected || typeof window.gifler !== 'function') return;
-          window.gifler(gifRenderSrc).get(function(animator) {
-            if (!gifCanvas.isConnected) {
-              try { animator.stop(); } catch (_) {}
-              return;
-            }
-            animator.onDrawFrame = function(ctx, frame) {
-              if (!frame?.buffer) return;
-              ctx.drawImage(frame.buffer, frame.x, frame.y);
-              gifCanvas._gifReady = true;
-            };
-            animator.animateInCanvas(gifCanvas);
-            _activeGifPlayer = animator;
-            // Start frame-rate momentum decay if a slingshot released into this hero.
+
+        const prewarmed = (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii)
+          ? _prewarmedGif
+          : null;
+
+        if (prewarmed?.img && prewarmed.gifCanvas) {
+          const img = prewarmed.img;
+          const gifCanvas = prewarmed.gifCanvas;
+          wrapper.appendChild(img);
+          wrapper.appendChild(gifCanvas);
+          if (prewarmed.animator) {
+            _activeGifPlayer = prewarmed.animator;
             if (capturedMomentum !== 0) {
-              _startGifMomentum(animator, gifCanvas, img, capturedMomentum);
+              _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
+            } else if (gifCanvas._gifReady) {
+              // Reveal an already-running prewarmed canvas even with zero momentum.
+              img.style.display = 'none';
+              gifCanvas.style.cssText = '';
+              gifCanvas.classList.add('spa-hero-image');
             }
-          });
-        }).catch(() => {});
+          }
+          _prewarmedGif = null;
+        } else {
+          const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
+          const img = document.createElement('img');
+          img.className = 'spa-hero-image';
+          img.src       = gifRenderSrc;
+          img.width     = 320;
+          img.height    = 320;
+          img.style.objectFit = 'contain';
+          img.setAttribute('draggable', 'false');
+          wrapper.appendChild(img);
+
+          const gifCanvas = document.createElement('canvas');
+          gifCanvas.className = 'spa-hero-canvas';
+          gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+          gifCanvas._gifReady = false;
+          wrapper.appendChild(gifCanvas);
+          ensureGifRuntime().then(() => {
+            if (!gifCanvas.isConnected || typeof window.gifler !== 'function') return;
+            window.gifler(gifRenderSrc).get(function(animator) {
+              if (!gifCanvas.isConnected) {
+                try { animator.stop(); } catch (_) {}
+                return;
+              }
+              animator.onDrawFrame = function(ctx, frame) {
+                if (!frame?.buffer) return;
+                ctx.drawImage(frame.buffer, frame.x, frame.y);
+                gifCanvas._gifReady = true;
+              };
+              animator.animateInCanvas(gifCanvas);
+              _ensureGifOrigDelays(animator);
+              _activeGifPlayer = animator;
+              // Start frame-rate momentum decay if a slingshot released into this hero.
+              if (capturedMomentum !== 0) {
+                _startGifMomentum(animator, gifCanvas, img, capturedMomentum);
+              }
+            });
+          }).catch(() => {});
+        }
       } else {
         const img = document.createElement('img');
         img.className = 'spa-hero-image';
@@ -674,6 +794,9 @@ export function createAppKernel({
       () => _pullToPromise || _buildSurface(targetSi, targetIi, 'to')
     );
 
+    // Start target GIF sequencing before reveal so motion carries through arrival.
+    _primeGifTargetForReveal(targetSi, targetIi, _momentumFactor);
+
     if (!fromSurf || !toSurf) { cancelSlingshot(); return; }
 
     try {
@@ -698,6 +821,7 @@ export function createAppKernel({
 
   function cancelSlingshot() {
     _momentumFactor = 0;
+    _clearPrewarmedGif();
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
     transitionKernel.hideCanvas();
     const heroEl = heroContainer.firstElementChild;
