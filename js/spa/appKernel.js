@@ -193,7 +193,9 @@ export function createAppKernel({
     let swapped = false;
 
     function applyDelays(f) {
-      const mul = Math.pow(2, -f);
+      const amount = Math.max(0, Math.min(1, Math.abs(f)));
+      const curved = Math.pow(amount, 0.75);
+      const mul = Math.max(0.3, Math.pow(3, -curved));
       for (let i = 0; i < frames.length; i++) {
         frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
       }
