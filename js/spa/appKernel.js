@@ -55,9 +55,10 @@ export function createAppKernel({
   let _gifRestartSeq       = 0;
 
   // ─── GIF momentum state ───────────────────────────────────────────────────
-  // Tracks the horizontal pull direction so _renderHeroDOM can pre-lean the
-  // incoming GIF hero. 0 = no momentum, +1 = next, -1 = prev.
-  let _momentumPullDir     = 0;
+  // Signed float -1..+1: positive = pull toward next, negative = pull toward prev.
+  // Consumed by _renderHeroDOM once per slingshot release.
+  let _momentumFactor      = 0;
+  let _gifMomentumCancel   = null; // cancels an active frame-delay decay loop
 
   // ─── State helpers ────────────────────────────────────────────────────────
 
@@ -165,7 +166,64 @@ export function createAppKernel({
     return `${base}${sep}spa_gif_restart=${Date.now()}_${_gifRestartSeq}${hash}`;
   }
 
+  // ─── GIF frame-rate momentum ─────────────────────────────────────────────
+  //
+  // After a slingshot release onto a GIF hero, we:
+  //   1. Swap the visible element from <img> (native, uncontrollable) to the
+  //      gifCanvas (gifler-driven, delay-controllable).
+  //   2. Scale all frame delays by Math.pow(2, -factor): factor>0 → faster,
+  //      factor<0 → slower.
+  //   3. Run a rAF decay loop multiplying factor by 0.93 each frame until
+  //      |factor| < 0.02, then restore original delays and swap back to <img>.
+  //
+  function _startGifMomentum(animator, gifCanvas, img, factor) {
+    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
+    const frames = animator._frames;
+    if (!frames || !frames.length) return;
+
+    // Snapshot original frame delays (gifler stores delay in centiseconds).
+    const origDelays = frames.map(f => f.delay);
+
+    // Show canvas in the hero layout; hide native <img>.
+    img.style.display = 'none';
+    gifCanvas.style.cssText =
+      'display:block;width:320px;height:320px;' +
+      'border-radius:16px;box-shadow:0 4px 32px #000a;max-width:100%;';
+
+    let current = factor;
+    let rafId;
+
+    function applyDelays(f) {
+      const mul = Math.pow(2, -f);
+      for (let i = 0; i < frames.length; i++) {
+        frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
+      }
+    }
+
+    function restore() {
+      for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+      gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+      if (img.isConnected) img.style.display = '';
+      _gifMomentumCancel = null;
+    }
+
+    function tick() {
+      if (!animator._running || !gifCanvas.isConnected || Math.abs(current) < 0.02) {
+        restore(); return;
+      }
+      current *= 0.93;
+      applyDelays(current);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    applyDelays(current);
+    rafId = requestAnimationFrame(tick);
+    _gifMomentumCancel = () => { cancelAnimationFrame(rafId); restore(); };
+  }
+
   function _renderHeroDOM(si, ii) {
+    // Cancel any running momentum decay before wiping the container.
+    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
     // Stop the gifler player we own before wiping the container
     if (_activeGifPlayer) {
       try { _activeGifPlayer.stop(); } catch (_) {}
@@ -214,6 +272,8 @@ export function createAppKernel({
         gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
         gifCanvas._gifReady = false;
         wrapper.appendChild(gifCanvas);
+        const capturedMomentum = _momentumFactor;
+        _momentumFactor = 0;
         ensureGifRuntime().then(() => {
           if (!gifCanvas.isConnected || typeof window.gifler !== 'function') return;
           window.gifler(gifRenderSrc).get(function(animator) {
@@ -228,6 +288,10 @@ export function createAppKernel({
             };
             animator.animateInCanvas(gifCanvas);
             _activeGifPlayer = animator;
+            // Start frame-rate momentum decay if a slingshot released into this hero.
+            if (capturedMomentum !== 0) {
+              _startGifMomentum(animator, gifCanvas, img, capturedMomentum);
+            }
           });
         }).catch(() => {});
       } else {
@@ -249,30 +313,6 @@ export function createAppKernel({
     }
 
     heroContainer.appendChild(wrapper);
-
-    // GIF momentum settle: if a directional slingshot pull just completed, pre-lean
-    // the wrapper in the pull direction so the hero appears to arrive with rotational
-    // momentum, then settle back to upright via CSS transition.
-    if (_momentumPullDir !== 0 && heroSpec.kind === 'image' && _isGifSrc(heroSpec.src)) {
-      const dir = _momentumPullDir;
-      _momentumPullDir = 0;
-      wrapper.style.transformOrigin = '50% 70%';
-      wrapper.style.transform = `rotate(${4 * dir}deg) translateX(${8 * dir}px) scale(0.97)`;
-      // Schedule settle after _revealHandoff clears its own transition (~90 ms).
-      // Double-rAF ensures at least one paint cycle before starting the spring-back.
-      setTimeout(() => {
-        if (!wrapper.isConnected) return;
-        requestAnimationFrame(() => {
-          if (!wrapper.isConnected) return;
-          wrapper.style.transition = 'transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1)';
-          wrapper.style.transform  = '';
-          setTimeout(() => {
-            if (!wrapper.isConnected) return;
-            wrapper.style.transition = '';
-          }, 530);
-        });
-      }, 95);
-    }
   }
 
   function _buildRenderInput(si, ii, phase) {
@@ -557,7 +597,7 @@ export function createAppKernel({
 
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
-    _momentumPullDir = 0;
+    _momentumFactor = 0;
     _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
@@ -587,9 +627,10 @@ export function createAppKernel({
     } else {
       _pullParticles = null;
     }
-    // Track pull direction for GIF momentum settle on reveal
+    // Track pull direction+magnitude for GIF frame-rate momentum on reveal.
+    // factor > 0 = pulled toward next (GIF speeds up); < 0 = toward prev (slows down).
     if (Math.abs(pullVector.x) > 0.1) {
-      _momentumPullDir = pullVector.x > 0 ? 1 : -1;
+      _momentumFactor = Math.sign(pullVector.x) * pullNormalized;
     }
   }
 
@@ -626,7 +667,8 @@ export function createAppKernel({
   function onCancel() { cancelSlingshot(); }
 
   function cancelSlingshot() {
-    _momentumPullDir = 0;
+    _momentumFactor = 0;
+    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
     transitionKernel.hideCanvas();
     const heroEl = heroContainer.firstElementChild;
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
