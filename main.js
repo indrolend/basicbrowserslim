@@ -107,13 +107,21 @@ window.addEventListener('keydown', (e) => {
   }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   if (e.key === 'Escape') {
+=======
+  if (e.key === 'Escape') {
+    kernel.dispatchInputIntent('exit-game');
+>>>>>>> 08a5b95 (Fix keyboard navigation fallback out of game mode)
     kernel.dispatchInputIntent('close-overlay');
     return;
   }
 
+<<<<<<< HEAD
 =======
 >>>>>>> b57078b (Runtime reduction and continuity hardening)
+=======
+>>>>>>> 08a5b95 (Fix keyboard navigation fallback out of game mode)
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const active = document.activeElement;
   if (!active?.matches?.('[data-action]')) return;

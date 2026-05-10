@@ -910,6 +910,7 @@ export function createAppKernel({
   }
 
   async function exitGameToCurrentItem() {
+    if (!state.isGameActive) return;
     if (_isTransitioning() || _isPulling()) return;
 
     await _withTransition(async () => {
@@ -1132,9 +1133,17 @@ export function createAppKernel({
 
   function navigate(direction) {
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
     if (state.isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
 >>>>>>> b57078b (Runtime reduction and continuity hardening)
+=======
+    if (state.isGameActive && window.__SPA_GameNav) {
+      const to = window.__SPA_GameNav.getToTarget?.(direction);
+      const isDifferentPosition = to && (to.sectionIdx !== state.si || to.itemIdx !== state.ii);
+      if (isDifferentPosition) { void gameNavigate(direction); return; }
+    }
+>>>>>>> 08a5b95 (Fix keyboard navigation fallback out of game mode)
     const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
