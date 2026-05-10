@@ -100,6 +100,12 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (e.key === 'Escape') {
+    kernel.dispatchInputIntent('exit-game');
+    kernel.dispatchInputIntent('close-overlay');
+    return;
+  }
+
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const active = document.activeElement;
   if (!active?.matches?.('[data-action]')) return;

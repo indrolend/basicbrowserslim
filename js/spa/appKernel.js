@@ -528,6 +528,7 @@ export function createAppKernel({
   }
 
   async function exitGameToCurrentItem() {
+    if (!state.isGameActive) return;
     if (_isTransitioning() || _isPulling()) return;
 
     await _withTransition(async () => {
@@ -683,7 +684,11 @@ export function createAppKernel({
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   function navigate(direction) {
-    if (state.isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
+    if (state.isGameActive && window.__SPA_GameNav) {
+      const to = window.__SPA_GameNav.getToTarget?.(direction);
+      const isDifferentPosition = to && (to.sectionIdx !== state.si || to.itemIdx !== state.ii);
+      if (isDifferentPosition) { void gameNavigate(direction); return; }
+    }
     const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
