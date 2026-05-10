@@ -504,7 +504,26 @@ export function createAppKernel({
     }
 
     // phase === 'to'
-    if (heroSpec.kind === 'image') return { type: 'gif', src: heroSpec.src };
+    if (heroSpec.kind === 'image') {
+      // If the target GIF is already prewarmed and has a live frame, use that
+      // exact canvas as the transition "to" truth so particles reform toward
+      // the same moving surface that reveal will show.
+      if (_isGifSrc(heroSpec.src)) {
+        const prewarmedCanvas =
+          _prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii
+            ? _prewarmedGif.gifCanvas
+            : null;
+        if (
+          prewarmedCanvas &&
+          prewarmedCanvas._gifReady === true &&
+          prewarmedCanvas.width > 0 &&
+          prewarmedCanvas.height > 0
+        ) {
+          return { type: 'element', element: prewarmedCanvas };
+        }
+      }
+      return { type: 'gif', src: heroSpec.src };
+    }
 
     if (viewModule?.buildHeroProbe) {
       const probe = viewModule.buildHeroProbe(item.id, heroContainer);
@@ -748,6 +767,8 @@ export function createAppKernel({
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
     _momentumFactor = 0;
+    // Start target GIF sequencing as early as possible during pull.
+    _primeGifTargetForReveal(targetSi, targetIi, 0);
     _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
@@ -781,6 +802,16 @@ export function createAppKernel({
     // Direction is intentionally ignored; both directions accelerate first.
     if (Math.abs(pullVector.x) > 0.1) {
       _momentumFactor = Math.max(0, Math.min(1, pullNormalized));
+      // If target GIF prewarm is already alive, update cadence immediately so
+      // the pre-reveal motion reflects current pull force.
+      if (
+        _prewarmedGif &&
+        _prewarmedGif.si === _pullTargetSi &&
+        _prewarmedGif.ii === _pullTargetIi &&
+        _prewarmedGif.animator
+      ) {
+        _applyGifCadenceCompression(_prewarmedGif.animator, _momentumFactor);
+      }
     }
   }
 
@@ -789,13 +820,15 @@ export function createAppKernel({
 
     const targetSi = _pullTargetSi, targetIi = _pullTargetIi;
 
+    // Ensure GIF target prewarm starts before we sample transition surfaces.
+    _primeGifTargetForReveal(targetSi, targetIi, _momentumFactor);
+
     const [fromSurf, toSurf] = await _buildSurfacePair(
       () => _pullFromPromise || _buildSurface(state.si, state.ii, 'from'),
-      () => _pullToPromise || _buildSurface(targetSi, targetIi, 'to')
+      // Rebuild "to" at release-time so prewarmed GIF canvas can be sampled
+      // when ready; fallback remains the existing static GIF path.
+      () => _buildSurface(targetSi, targetIi, 'to')
     );
-
-    // Start target GIF sequencing before reveal so motion carries through arrival.
-    _primeGifTargetForReveal(targetSi, targetIi, _momentumFactor);
 
     if (!fromSurf || !toSurf) { cancelSlingshot(); return; }
 
