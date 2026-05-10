@@ -1,0 +1,27 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "files.exclude": {
+            "**/.git": true,
+            "**/.DS_Store": true,
+            "**/node_modules": true,
+            "**/bower_components": true
+        },
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "files.autoSave": "onFocusChange",
+        "search.exclude": {
+            "**/node_modules": true,
+            "**/bower_components": true
+        },
+        "files.associations": {
+            "*.js": "javascript",
+            "*.css": "css",
+            "*.html": "html"
+        }
+    }
+}

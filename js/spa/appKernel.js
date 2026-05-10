@@ -35,9 +35,16 @@ export function createAppKernel({
   const state = {
     si: 0,
     ii: 0,
+<<<<<<< HEAD
     slingshotPhase: 'REST', // 'REST' | 'TENSION' | 'RELEASE'
     slingshotAmplitude: 0,  // [0,1] pull strength
     homeSectionLocked: false,
+=======
+    // 'idle' | 'transitioning' | 'pulling'
+    phase: 'idle',
+    homeSectionLocked: false,
+    isGameActive: false,
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     queuedTarget: null
   };
 
@@ -53,6 +60,7 @@ export function createAppKernel({
   let _sectionNav          = document.getElementById('spa-section-nav');
   let _activeGifPlayer     = null;
   let _gifRestartSeq       = 0;
+<<<<<<< HEAD
   let _prewarmedGif        = null;
   const GIF_REVEAL_LATCH_MS = 40;
   let _gifResumeLatchTimer  = null;
@@ -73,6 +81,15 @@ export function createAppKernel({
   }
 
   // ─── Navigation helpers ───────────────────────────────────────────────────
+=======
+
+  // ─── State helpers ────────────────────────────────────────────────────────
+
+  function _isTransitioning() { return state.phase !== 'idle'; }
+  function _isPulling()       { return state.phase === 'pulling'; }
+
+  // ─── Navigation helpers (inlined from navModel.js) ────────────────────────
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
 
   function _getAvailableSections(homeSectionLocked) {
     return homeSectionLocked ? SPA_SECTIONS.filter((_, i) => i !== 0) : SPA_SECTIONS;
@@ -105,7 +122,11 @@ export function createAppKernel({
       : _getPrevTarget(si, ii, homeSectionLocked);
   }
 
+<<<<<<< HEAD
   // ─── Render helpers ───────────────────────────────────────────────────────
+=======
+  // ─── Render helpers (inlined from renderNav.js and renderHero.js) ────────
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
 
   function _getSectionNav() {
     if (!_sectionNav) {
@@ -173,6 +194,7 @@ export function createAppKernel({
     return `${base}${sep}spa_gif_restart=${Date.now()}_${_gifRestartSeq}${hash}`;
   }
 
+<<<<<<< HEAD
   function _getGifDelayScale(f) {
     const amount = Math.max(0, Math.min(1, Math.abs(f)));
     const curved = Math.pow(amount, 0.75);
@@ -411,6 +433,9 @@ export function createAppKernel({
     _clearGifResumeLatchTimer();
     // Cancel any running momentum decay before wiping the container.
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
+=======
+  function _renderHeroDOM(si, ii) {
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     // Stop the gifler player we own before wiping the container
     if (_activeGifPlayer) {
       try { _activeGifPlayer.stop(); } catch (_) {}
@@ -444,6 +469,7 @@ export function createAppKernel({
 
     if (heroSpec.kind === 'image') {
       if (_isGifSrc(heroSpec.src)) {
+<<<<<<< HEAD
         const capturedMomentum = _momentumFactor;
         _momentumFactor = 0;
 
@@ -520,6 +546,39 @@ export function createAppKernel({
             });
           }).catch(() => {});
         }
+=======
+        const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
+        const img = document.createElement('img');
+        img.className = 'spa-hero-image';
+        img.src       = gifRenderSrc;
+        img.width     = 320;
+        img.height    = 320;
+        img.style.objectFit = 'contain';
+        img.setAttribute('draggable', 'false');
+        wrapper.appendChild(img);
+
+        const gifCanvas = document.createElement('canvas');
+        gifCanvas.className = 'spa-hero-canvas';
+        gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+        gifCanvas._gifReady = false;
+        wrapper.appendChild(gifCanvas);
+        ensureGifRuntime().then(() => {
+          if (!gifCanvas.isConnected || typeof window.gifler !== 'function') return;
+          window.gifler(gifRenderSrc).get(function(animator) {
+            if (!gifCanvas.isConnected) {
+              try { animator.stop(); } catch (_) {}
+              return;
+            }
+            animator.onDrawFrame = function(ctx, frame) {
+              if (!frame?.buffer) return;
+              ctx.drawImage(frame.buffer, frame.x, frame.y);
+              gifCanvas._gifReady = true;
+            };
+            animator.animateInCanvas(gifCanvas);
+            _activeGifPlayer = animator;
+          });
+        }).catch(() => {});
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
       } else {
         const img = document.createElement('img');
         img.className = 'spa-hero-image';
@@ -580,6 +639,7 @@ export function createAppKernel({
     }
 
     // phase === 'to'
+<<<<<<< HEAD
     if (heroSpec.kind === 'image') {
       // If the target GIF is already prewarmed and has a live frame, use that
       // exact canvas as the transition "to" truth so particles reform toward
@@ -604,6 +664,9 @@ export function createAppKernel({
       }
       return { type: 'gif', src: heroSpec.src };
     }
+=======
+    if (heroSpec.kind === 'image') return { type: 'gif', src: heroSpec.src };
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
 
     if (viewModule?.buildHeroProbe) {
       const probe = viewModule.buildHeroProbe(item.id, heroContainer);
@@ -822,11 +885,81 @@ export function createAppKernel({
     });
   }
 
+<<<<<<< HEAD
+=======
+  // ─── Game mode lifecycle ──────────────────────────────────────────────────
+
+  async function enterCurrentGameWithTransition() {
+    if (_isTransitioning() || _isPulling()) return;
+    await _ensureRuntimeFor(state.si);
+    const gameNav = window.__SPA_GameNav;
+    if (!gameNav) return;
+    const probe = gameNav.buildHeroProbe?.(state.si, state.ii);
+    if (!probe) return;
+
+    await _withTransition(async () => {
+      await _runSubsystemTransform({
+        fromTask: () => _buildSurface(state.si, state.ii, 'from'),
+        toTask: () => _rasterizeProbeSurface(probe),
+        reveal: async () => {
+          state.isGameActive = true;
+          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
+        }
+      });
+    });
+  }
+
+  async function exitGameToCurrentItem() {
+    if (_isTransitioning() || _isPulling()) return;
+
+    await _withTransition(async () => {
+      await _runSubsystemTransform({
+        fromTask: () => _buildSurface(state.si, state.ii, 'from'),
+        toTask: () => _buildSurface(state.si, state.ii, 'to'),
+        reveal: async () => {
+          state.isGameActive = false;
+          _commitView(state.si, state.ii, { nav: false });
+        }
+      });
+    });
+  }
+
+  async function gameNavigate(direction) {
+    await _ensureRuntimeFor(state.si);
+    const gameNav = window.__SPA_GameNav;
+    if (!gameNav || _isTransitioning() || _isPulling()) return;
+    const from = gameNav.getFromTarget?.();
+    const to   = gameNav.getToTarget?.(direction);
+    if (!from || !to) return;
+
+    const fromProbe = gameNav.buildHeroProbe?.(from.sectionIdx, from.itemIdx);
+    const toProbe   = gameNav.buildHeroProbe?.(to.sectionIdx,   to.itemIdx);
+    if (!fromProbe || !toProbe) { fromProbe?.cleanup?.(); toProbe?.cleanup?.(); return; }
+
+    await _withTransition(async () => {
+      await _runSubsystemTransform({
+        fromTask: () => _rasterizeProbeSurface(fromProbe),
+        toTask: () => _rasterizeProbeSurface(toProbe),
+        reveal: async () => {
+          _commitPosition(to.sectionIdx, to.itemIdx);
+          _commitView(state.si, state.ii, { hero: false });
+          gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
+          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
+        }
+      });
+    });
+  }
+
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
   // ─── Slingshot callbacks ──────────────────────────────────────────────────
 
   function onTap() {
     if (window.__SPA_Overlay?.shouldSuppressTap?.()) return;
     if (window.__SPA_Overlay?.isOpen()) { void closeOverlayWithTransition(); return; }
+<<<<<<< HEAD
+=======
+    if (state.isGameActive) { window.__SPA_GameNav?.onTap?.(); return; }
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     const action = getClickAction(state.si, state.ii);
     if (action) _handleHeroAction(action);
   }
@@ -840,6 +973,7 @@ export function createAppKernel({
     if (_isPulling()) return false;
 
     let targetSi, targetIi;
+<<<<<<< HEAD
     const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (!t) return false;
     targetSi = t.sectionIdx; targetIi = t.itemIdx;
@@ -849,6 +983,20 @@ export function createAppKernel({
     _momentumFactor = 0;
     // Start target GIF sequencing as early as possible during pull.
     _primeGifTargetForReveal(targetSi, targetIi, 0);
+=======
+    if (state.isGameActive && window.__SPA_GameNav) {
+      const t = window.__SPA_GameNav.getToTarget?.(direction);
+      if (!t) return false;
+      targetSi = t.sectionIdx; targetIi = t.itemIdx;
+    } else {
+      const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
+      if (!t) return false;
+      targetSi = t.sectionIdx; targetIi = t.itemIdx;
+    }
+
+    _pullTargetSi = targetSi;
+    _pullTargetIi = targetIi;
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
@@ -878,6 +1026,7 @@ export function createAppKernel({
     } else {
       _pullParticles = null;
     }
+<<<<<<< HEAD
     // Track pull force magnitude for GIF frame cadence compression on reveal.
     // Direction is intentionally ignored; both directions accelerate first.
     if (Math.abs(pullVector.x) > 0.1) {
@@ -893,6 +1042,8 @@ export function createAppKernel({
         _applyGifCadenceCompression(_prewarmedGif.animator, _momentumFactor);
       }
     }
+=======
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
   }
 
   async function onRelease({ pullNormalized }) {
@@ -900,6 +1051,7 @@ export function createAppKernel({
 
     const targetSi = _pullTargetSi, targetIi = _pullTargetIi;
 
+<<<<<<< HEAD
     // Ensure GIF target prewarm starts before we sample transition surfaces.
     _primeGifTargetForReveal(targetSi, targetIi, _momentumFactor);
 
@@ -908,6 +1060,11 @@ export function createAppKernel({
       // Rebuild "to" at release-time so prewarmed GIF canvas can be sampled
       // when ready; fallback remains the existing static GIF path.
       () => _buildSurface(targetSi, targetIi, 'to')
+=======
+    const [fromSurf, toSurf] = await _buildSurfacePair(
+      () => _pullFromPromise || _buildSurface(state.si, state.ii, 'from'),
+      () => _pullToPromise || _buildSurface(targetSi, targetIi, 'to')
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     );
 
     if (!fromSurf || !toSurf) { cancelSlingshot(); return; }
@@ -923,6 +1080,10 @@ export function createAppKernel({
           await onBeforeReveal();
         }
       }), () => _commitPositionAndView(targetSi, targetIi), () => _commitPositionAndView(targetSi, targetIi));
+<<<<<<< HEAD
+=======
+      if (state.isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(state.si, state.ii);
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
       _activate(state.si, state.ii);
     } catch (_) {}
 
@@ -930,6 +1091,7 @@ export function createAppKernel({
     _drainQueue();
   }
 
+<<<<<<< HEAD
   function onCancel() {
     setSlingshotPhase('REST', 0);
     cancelSlingshot();
@@ -941,6 +1103,11 @@ export function createAppKernel({
     _clearGifResumeLatchTimer();
     _clearPrewarmedGif();
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
+=======
+  function onCancel() { cancelSlingshot(); }
+
+  function cancelSlingshot() {
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     transitionKernel.hideCanvas();
     const heroEl = heroContainer.firstElementChild;
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
@@ -949,7 +1116,11 @@ export function createAppKernel({
   }
 
   function _cleanupPull() {
+<<<<<<< HEAD
     setSlingshotPhase('REST', 0);
+=======
+    _setPhase('idle');
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     _pullTargetSi = null; _pullTargetIi = null;
     _pullFromSurface = null; _pullToSurface = null;
     _pullFromPromise = null; _pullToPromise = null;
@@ -960,6 +1131,10 @@ export function createAppKernel({
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   function navigate(direction) {
+<<<<<<< HEAD
+=======
+    if (state.isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
@@ -984,6 +1159,19 @@ export function createAppKernel({
       return;
     }
 
+<<<<<<< HEAD
+=======
+    if (intent === 'enter-game') {
+      void enterCurrentGameWithTransition();
+      return;
+    }
+
+    if (intent === 'exit-game') {
+      void exitGameToCurrentItem();
+      return;
+    }
+
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     if (intent === 'close-overlay') {
       void closeOverlayWithTransition();
       return;
@@ -1046,6 +1234,13 @@ export function createAppKernel({
     // Overlay
     openOverlayWithTransition,
     closeOverlayWithTransition,
+<<<<<<< HEAD
+=======
+    // Game mode
+    enterCurrentGameWithTransition,
+    exitGameToCurrentItem,
+    gameNavigate,
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
     // State accessors
     getSi() { return state.si; },
     getIi() { return state.ii; },
@@ -1059,3 +1254,7 @@ export function createAppKernel({
       _commitView(state.si, state.ii, { nav: false });
     }
   };
+<<<<<<< HEAD
+=======
+}
+>>>>>>> b57078b (Runtime reduction and continuity hardening)

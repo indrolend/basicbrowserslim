@@ -153,14 +153,44 @@ body {
 .spa-overlay-close:focus-visible { background: #27342a; border-color: #3e6b49; outline: none; }
 
 /* ─── Asymptote game styles ────────────────────────────── */
+<<<<<<< HEAD
+=======
+.asy-stats-bar {
+  display: flex; gap: 0.5rem; align-items: center; font-size: 0.8rem;
+  color: #9aa; padding: 0 0.25rem;
+}
+.asy-core-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); flex-shrink: 0;
+}
+.asy-engine-hero {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 200px; user-select: none;
+}
+.asy-motif {
+  font-size: clamp(2.4rem, 7vw, 3.6rem); color: var(--accent);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.asy-item-hero {
+  display: flex; align-items: center; justify-content: center;
+  width: min(100%, 38rem); min-height: 320px;
+}
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
 .asy-hero-action {
   min-height: 44px; min-width: 44px; border-radius: 10px;
   border: 1px solid #2f2f2f; background: var(--panel);
   color: var(--accent); font: inherit; cursor: pointer; padding: 0.7rem 1.2rem;
+<<<<<<< HEAD
   transition: background 0.2s; margin-top: 1rem;
 }
 .asy-hero-action:hover { background: var(--panel-active); }
 .asy-hero-action:disabled { opacity: 0.4; cursor: default; }
+=======
+  transition: background 0.2s;
+}
+.asy-hero-action:hover { background: var(--panel-active); }
+.asy-hero-main.asy-hero--dim { opacity: 0.38; transition: opacity 0.25s; }
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
 
 /* ─── Mobile ───────────────────────────────────────────── */
 @media (max-width: 768px) {

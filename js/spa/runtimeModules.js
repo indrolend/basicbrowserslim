@@ -43,6 +43,11 @@ export function ensureOverlayRuntime() {
 
 export async function ensureSectionRuntime(sectionId) {
   if (sectionId !== 'games') return;
+<<<<<<< HEAD
   await loadScriptOnce('js/spa/apps/asymptoteApp.js', () => !!window.AsymptoteApp);
   await loadScriptOnce('js/spa/views/gamesView.js', () => !!window.__SPA_Views?.games);
+=======
+  await loadScriptOnce('js/spa/apps/asymptoteApp.js');
+  await loadScriptOnce('js/spa/views/gamesView.js', () => !!window.__SPA_Views?.games && !!window.__SPA_GameNav);
+>>>>>>> b57078b (Runtime reduction and continuity hardening)
 }
