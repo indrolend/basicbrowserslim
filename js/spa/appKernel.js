@@ -171,10 +171,10 @@ export function createAppKernel({
   // After a slingshot release onto a GIF hero, we:
   //   1. Swap the visible element from <img> (native, uncontrollable) to the
   //      gifCanvas (gifler-driven, delay-controllable).
-  //   2. Scale all frame delays by Math.pow(2, -factor): factor>0 → faster,
-  //      factor<0 → slower.
-  //   3. Run a rAF decay loop multiplying factor by 0.93 each frame until
-  //      |factor| < 0.02, then restore original delays and swap back to <img>.
+  //   2. Temporarily compress frame delays by Math.pow(2, -factor), where
+  //      factor is magnitude-only in [0, 1].
+  //   3. Run a rAF decay loop until |factor| < 0.02, then restore original
+  //      delays but keep rendering on the same canvas surface.
   //
   function _startGifMomentum(animator, gifCanvas, img, factor) {
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
@@ -232,7 +232,11 @@ export function createAppKernel({
         return;
       }
       if (Math.abs(current) < 0.02) {
-        restoreDelays(); swapOut(); _gifMomentumCancel = null; return;
+        // End momentum without a canvas->img handoff. Keeping the same visual
+        // surface avoids endpoint duplication caused by unsynced playback sources.
+        restoreDelays();
+        _gifMomentumCancel = () => { restoreDelays(); swapOut(); _gifMomentumCancel = null; };
+        return;
       }
       current *= 0.93;
       applyDelays(current);
