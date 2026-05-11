@@ -202,7 +202,7 @@ export function createAppKernel({
 
   function _clearGifResumeLatchTimer() {
     if (_gifResumeLatchTimer != null) {
-      clearTimeout(_gifResumeLatchTimer);
+      cancelAnimationFrame(_gifResumeLatchTimer);
       _gifResumeLatchTimer = null;
     }
   }
@@ -416,7 +416,7 @@ export function createAppKernel({
 
             const resumeWithLatch = prewarmed.frozenAtToSurface && !prewarmed.animator._running;
             if (resumeWithLatch) {
-              _gifResumeLatchTimer = setTimeout(() => {
+              _gifResumeLatchTimer = requestAnimationFrame(() => {
                 _gifResumeLatchTimer = null;
                 if (!gifCanvas.isConnected) return;
                 try { prewarmed.animator.start(); } catch (_) {}
@@ -424,7 +424,7 @@ export function createAppKernel({
                 if (capturedMomentum !== 0) {
                   _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
                 }
-              }, GIF_REVEAL_LATCH_MS);
+              });
             } else if (capturedMomentum !== 0) {
               _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
             }
