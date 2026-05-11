@@ -54,6 +54,8 @@ export function createAppKernel({
   let _activeGifPlayer     = null;
   let _gifRestartSeq       = 0;
   let _prewarmedGif        = null;
+  const GIF_REVEAL_LATCH_MS = 100;
+  let _gifResumeLatchTimer  = null;
 
   // ─── GIF momentum state ───────────────────────────────────────────────────
   // Unsigned pull-force magnitude [0..1], consumed once per slingshot release.
@@ -196,6 +198,13 @@ export function createAppKernel({
     const origDelays = animator?._spaOrigDelays;
     if (!frames?.length || !origDelays?.length) return;
     for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+  }
+
+  function _clearGifResumeLatchTimer() {
+    if (_gifResumeLatchTimer != null) {
+      clearTimeout(_gifResumeLatchTimer);
+      _gifResumeLatchTimer = null;
+    }
   }
 
   function _clearPrewarmedGif() {
@@ -347,6 +356,7 @@ export function createAppKernel({
   }
 
   function _renderHeroDOM(si, ii) {
+    _clearGifResumeLatchTimer();
     // Cancel any running momentum decay before wiping the container.
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
     // Stop the gifler player we own before wiping the container
@@ -395,18 +405,28 @@ export function createAppKernel({
           wrapper.appendChild(img);
           wrapper.appendChild(gifCanvas);
           if (prewarmed.animator) {
-            if (prewarmed.frozenAtToSurface && !prewarmed.animator._running) {
-              try { prewarmed.animator.start(); } catch (_) {}
-              prewarmed.frozenAtToSurface = false;
-            }
             _activeGifPlayer = prewarmed.animator;
-            if (capturedMomentum !== 0) {
-              _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
-            } else if (gifCanvas._gifReady) {
-              // Reveal an already-running prewarmed canvas even with zero momentum.
+            if (gifCanvas._gifReady) {
+              // Reveal uses the same frozen prewarmed frame first, then resume
+              // sequencing after a short visual latch.
               img.style.display = 'none';
               gifCanvas.style.cssText = '';
               gifCanvas.classList.add('spa-hero-image');
+            }
+
+            const resumeWithLatch = prewarmed.frozenAtToSurface && !prewarmed.animator._running;
+            if (resumeWithLatch) {
+              _gifResumeLatchTimer = setTimeout(() => {
+                _gifResumeLatchTimer = null;
+                if (!gifCanvas.isConnected) return;
+                try { prewarmed.animator.start(); } catch (_) {}
+                prewarmed.frozenAtToSurface = false;
+                if (capturedMomentum !== 0) {
+                  _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
+                }
+              }, GIF_REVEAL_LATCH_MS);
+            } else if (capturedMomentum !== 0) {
+              _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
             }
           }
           _prewarmedGif = null;
@@ -862,6 +882,7 @@ export function createAppKernel({
 
   function cancelSlingshot() {
     _momentumFactor = 0;
+    _clearGifResumeLatchTimer();
     _clearPrewarmedGif();
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
     transitionKernel.hideCanvas();
