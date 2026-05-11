@@ -35,8 +35,8 @@ export function createAppKernel({
   const state = {
     si: 0,
     ii: 0,
-    // 'idle' | 'transitioning' | 'pulling'
-    phase: 'idle',
+    slingshotPhase: 'REST', // 'REST' | 'TENSION' | 'RELEASE'
+    slingshotAmplitude: 0,  // [0,1] pull strength
     homeSectionLocked: false,
     queuedTarget: null
   };
@@ -64,8 +64,13 @@ export function createAppKernel({
 
   // ─── State helpers ────────────────────────────────────────────────────────
 
-  function _isTransitioning() { return state.phase !== 'idle'; }
-  function _isPulling()       { return state.phase === 'pulling'; }
+  function _isTransitioning() { return state.slingshotPhase === 'RELEASE'; }
+  function _isPulling()       { return state.slingshotPhase === 'TENSION'; }
+
+  function setSlingshotPhase(phase, amplitude = 0) {
+    state.slingshotPhase = phase;
+    state.slingshotAmplitude = amplitude;
+  }
 
   // ─── Navigation helpers ───────────────────────────────────────────────────
 
@@ -183,21 +188,38 @@ export function createAppKernel({
     return animator._spaOrigDelays;
   }
 
-  function _applyGifCadenceCompression(animator, factor) {
+
+  // --- Palindromic GIF cadence experiment ---
+  // Split momentumFactor into cadenceAmplitude (set on pull/release) and cadencePhase (tracks return)
+  let _cadenceAmplitude = 0; // [0,1] set by pull strength
+  let _cadencePhase = 0;     // [0,1] 1=just released, 0=baseline
+  let _cadenceDecayTimer = null;
+
+  function _applyGifCadenceCompression(animator, amplitude, phase) {
+    // amplitude: how strong the effect is (set on release)
+    // phase: how far along the return arc (1→0)
     const frames = animator?._frames;
     const origDelays = _ensureGifOrigDelays(animator);
     if (!frames?.length || !origDelays) return;
-    const mul = _getGifDelayScale(factor);
+    // Compression is strongest at peak, decays to baseline
+    const mul = _getGifDelayScale(amplitude * phase);
     for (let i = 0; i < frames.length; i++) {
       frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
     }
   }
+
 
   function _restoreGifCadence(animator) {
     const frames = animator?._frames;
     const origDelays = animator?._spaOrigDelays;
     if (!frames?.length || !origDelays?.length) return;
     for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+    _cadenceAmplitude = 0;
+    _cadencePhase = 0;
+    if (_cadenceDecayTimer) {
+      cancelAnimationFrame(_cadenceDecayTimer);
+      _cadenceDecayTimer = null;
+    }
   }
 
   function _clearGifResumeLatchTimer() {
@@ -223,14 +245,20 @@ export function createAppKernel({
       return;
     }
 
+
     if (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii) {
       if (momentumFactor > 0 && _prewarmedGif.animator) {
-        _applyGifCadenceCompression(_prewarmedGif.animator, momentumFactor);
+        _cadenceAmplitude = momentumFactor;
+        _cadencePhase = 1;
+        _applyGifCadenceCompression(_prewarmedGif.animator, _cadenceAmplitude, _cadencePhase);
+        _startCadenceDecay(_prewarmedGif.animator);
       }
       return;
     }
 
+
     _clearPrewarmedGif();
+
 
     const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
     const img = document.createElement('img');
@@ -246,8 +274,28 @@ export function createAppKernel({
     gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
     gifCanvas._gifReady = false;
 
-    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null, frozenAtToSurface: false };
+    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null, frozenAtToSurface: false, firstFrameReady: false };
     _prewarmedGif = token;
+
+    // When the animator is ready, apply cadence if needed
+    // (This is a safe place to hook up the new variables)
+    // ...existing code...
+  }
+
+  function _startCadenceDecay(animator) {
+    if (_cadenceDecayTimer) cancelAnimationFrame(_cadenceDecayTimer);
+    function decayStep() {
+      if (_cadencePhase > 0) {
+        _cadencePhase -= 0.03; // Decay rate (tweak as needed)
+        if (_cadencePhase < 0) _cadencePhase = 0;
+        _applyGifCadenceCompression(animator, _cadenceAmplitude, _cadencePhase);
+        _cadenceDecayTimer = requestAnimationFrame(decayStep);
+      } else {
+        _restoreGifCadence(animator);
+      }
+    }
+    _cadenceDecayTimer = requestAnimationFrame(decayStep);
+  }
 
     ensureGifRuntime().then(() => {
       if (_prewarmedGif !== token || typeof window.gifler !== 'function') return;
@@ -257,17 +305,21 @@ export function createAppKernel({
           return;
         }
         token.animator = animator;
+        let firstFrameDrawn = false;
         animator.onDrawFrame = function(ctx, frame) {
           if (!frame?.buffer) return;
           ctx.drawImage(frame.buffer, frame.x, frame.y);
           gifCanvas._gifReady = true;
+          if (!firstFrameDrawn) {
+            firstFrameDrawn = true;
+            token.firstFrameReady = true;
+            // Freeze at frame 0 immediately after first draw
+            setTimeout(() => { try { animator.stop(); } catch (_) {} }, 0);
+          }
         };
         animator.animateInCanvas(gifCanvas);
         _ensureGifOrigDelays(animator);
-        if (momentumFactor > 0) {
-          // Prewarm target cadence during transition so reveal inherits motion.
-          _applyGifCadenceCompression(animator, momentumFactor);
-        }
+        // Do NOT apply momentum cadence during prewarm; only after reveal.
       });
     }).catch(() => {});
   }
@@ -878,9 +930,13 @@ export function createAppKernel({
     _drainQueue();
   }
 
-  function onCancel() { cancelSlingshot(); }
+  function onCancel() {
+    setSlingshotPhase('REST', 0);
+    cancelSlingshot();
+  }
 
   function cancelSlingshot() {
+    setSlingshotPhase('REST', 0);
     _momentumFactor = 0;
     _clearGifResumeLatchTimer();
     _clearPrewarmedGif();
@@ -893,7 +949,7 @@ export function createAppKernel({
   }
 
   function _cleanupPull() {
-    _setPhase('idle');
+    setSlingshotPhase('REST', 0);
     _pullTargetSi = null; _pullTargetIi = null;
     _pullFromSurface = null; _pullToSurface = null;
     _pullFromPromise = null; _pullToPromise = null;
@@ -1003,4 +1059,3 @@ export function createAppKernel({
       _commitView(state.si, state.ii, { nav: false });
     }
   };
-}
