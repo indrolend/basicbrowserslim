@@ -54,7 +54,7 @@ export function createAppKernel({
   let _activeGifPlayer     = null;
   let _gifRestartSeq       = 0;
   let _prewarmedGif        = null;
-  const GIF_REVEAL_LATCH_MS = 100;
+  const GIF_REVEAL_LATCH_MS = 40;
   let _gifResumeLatchTimer  = null;
 
   // ─── GIF momentum state ───────────────────────────────────────────────────
