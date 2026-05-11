@@ -237,7 +237,7 @@ export function createAppKernel({
     gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
     gifCanvas._gifReady = false;
 
-    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null };
+    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null, frozenAtToSurface: false };
     _prewarmedGif = token;
 
     ensureGifRuntime().then(() => {
@@ -395,6 +395,10 @@ export function createAppKernel({
           wrapper.appendChild(img);
           wrapper.appendChild(gifCanvas);
           if (prewarmed.animator) {
+            if (prewarmed.frozenAtToSurface && !prewarmed.animator._running) {
+              try { prewarmed.animator.start(); } catch (_) {}
+              prewarmed.frozenAtToSurface = false;
+            }
             _activeGifPlayer = prewarmed.animator;
             if (capturedMomentum !== 0) {
               _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
@@ -519,6 +523,10 @@ export function createAppKernel({
           prewarmedCanvas.width > 0 &&
           prewarmedCanvas.height > 0
         ) {
+          if (_prewarmedGif?.animator && !_prewarmedGif.frozenAtToSurface) {
+            try { _prewarmedGif.animator.stop(); } catch (_) {}
+            _prewarmedGif.frozenAtToSurface = true;
+          }
           return { type: 'element', element: prewarmedCanvas };
         }
       }
