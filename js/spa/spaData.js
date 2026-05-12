@@ -1,5 +1,27 @@
 // spaData.js — SPA section/item data, constants, and pure data accessors
 
+window.__INDROLEND_ROUTES__ = {
+  items: {
+    // Social
+    'social/tiktok':    { clickAction: 'https://www.tiktok.com/@indrolend' },
+    'social/instagram': { clickAction: 'https://www.instagram.com/indrolend' },
+    'social/youtube':   { clickAction: 'https://www.youtube.com/@indrolend' },
+    // Music
+    'music/spotify':    { clickAction: 'https://open.spotify.com/artist/indrolend' },
+    'music/appleMusic': { clickAction: 'https://music.apple.com/us/artist/indrolend' },
+    'music/bandcamp':   { clickAction: 'https://indrolend.bandcamp.com' },
+    'music/soundcloud': { clickAction: 'overlay:soundcloud' },
+    // Games items have no clickAction — gamesView handles hero rendering and actions
+    // Transition Lab
+    'transitionLab/labTextStart':      { clickAction: null },
+    'transitionLab/labImageNormal':    { clickAction: null },
+    'transitionLab/labGifFull':        { clickAction: null },
+    'transitionLab/labImageOffset':    { clickAction: null },
+    'transitionLab/labGifTransparent': { clickAction: null },
+    'transitionLab/labTextEnd':        { clickAction: null }
+  }
+};
+
 // ─── Sections data ────────────────────────────────────────────────────────────
 
 export const SPA_SECTIONS = [
@@ -29,7 +51,10 @@ export const SPA_SECTIONS = [
   {
     id: 'games', label: 'Games',
     items: [
-      { id: 'asymptote', label: 'Asymptote Engine', hero: { kind: 'text', text: 'Asymptote Engine' } }
+      { id: 'understand', label: 'Understand', hero: { kind: 'text', text: 'Asymptote' } },
+      { id: 'generate',   label: 'Generate',   hero: { kind: 'text', text: 'Generators' } },
+      { id: 'upgrade',    label: 'Upgrade',    hero: { kind: 'text', text: 'Upgrades' } },
+      { id: 'collapse',   label: 'Collapse',   hero: { kind: 'text', text: 'Sacrifice' } }
     ]
   },
   {
@@ -59,13 +84,6 @@ export const SLINGSHOT_PARTICLE_SIZE = 4;
 export function getSection(si)      { return SPA_SECTIONS[si] ?? null; }
 export function getItem(si, ii)     { return SPA_SECTIONS[si]?.items[ii] ?? null; }
 export function getHeroSpec(si, ii) { return getItem(si, ii)?.hero ?? { kind: 'text', text: '' }; }
-
-export function getHeroSurfaceKey(si, ii) { return `${si}:${ii}`; }
-
-export function isGifHero(si, ii) {
-  const hero = getHeroSpec(si, ii);
-  return hero.kind === 'image' && /\.gif(?:[?#]|$)/i.test(hero.src || '');
-}
 
 export function getClickAction(si, ii) {
   const section = getSection(si);

@@ -1,38 +1,45 @@
-// appKernel.js — application state machine and transition lifecycle
+// appKernel.js — application state machine, orchestration, and render authority
 //
-// Extracts all state and lifecycle from main.js into an explicit kernel.
+// Canonical state authority, navigation, surface building, and render commits.
 //
 // Owns:
-//   - AppState (current position, transition phase, pull state, game mode, queued nav)
-//   - Navigation: goTo, navigate
-//   - Overlay lifecycle: open/close with transition
-//   - Game mode lifecycle: enter/exit/navigate
-//   - Slingshot gesture callbacks: onTap, onLock, onPull, onRelease, onCancel
+//   - AppState (position, transition phase, pull state, game mode, queued nav)
+//   - Navigation computation
+//   - Surface rasterization input building
+//   - Hero and nav rendering
+//   - GIF player lifecycle
+//   - Overlay lifecycle
+//   - Game mode lifecycle
+//   - Slingshot gesture callbacks
 //   - Hero action dispatch
+//   - All render commit authority
 //
-// Does NOT own: DOM structure, canvas, particle sampling, or rendering.
+// Minimal delegation: canvas animation (transitionKernel), particle physics (particleEngine),
+// hero rasterization (rasterizeHero), and lazy runtime loading.
 
-import { getSection, getItem, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
+import { SPA_SECTIONS, getSection, getItem, getHeroSpec, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
 import { getSafeExternalUrl } from './utils.js';
-import { getTargetForDirection } from './navModel.js';
+import { ensureOverlayRuntime, ensureSectionRuntime, ensureGifRuntime } from './runtimeModules.js';
 
 export function createAppKernel({
-  surfaceManager,
   transitionKernel,
-  heroRenderer,
-  navRenderer,
   rasterizeHero,
-  heroContainer
+  heroContainer,
+  dotsContainer,
+  overlayRoot
 }) {
   // ─── AppState ─────────────────────────────────────────────────────────────
 
-  let _si = 0, _ii = 0;
-  // 'idle' | 'transitioning' | 'pulling'
-  let _phase = 'idle';
-
-  let _homeSectionLocked   = false;
-  let _isGameActive        = false;
-  let _queuedTarget        = null;
+  // Canonical live state: every event mutates this object, every render commit
+  // reads from it. Transition-only scratch data remains below.
+  const state = {
+    si: 0,
+    ii: 0,
+    slingshotPhase: 'REST', // 'REST' | 'TENSION' | 'RELEASE'
+    slingshotAmplitude: 0,  // [0,1] pull strength
+    homeSectionLocked: false,
+    queuedTarget: null
+  };
 
   // Slingshot pull state
   let _pullTargetSi        = null, _pullTargetIi   = null;
@@ -41,80 +48,721 @@ export function createAppKernel({
   let _pullParticles       = null;
   let _pullCanvasW         = 0,   _pullCanvasH    = 0;
 
+  // ─── Render state ─────────────────────────────────────────────────────────
+
+  let _sectionNav          = document.getElementById('spa-section-nav');
+  let _activeGifPlayer     = null;
+  let _gifRestartSeq       = 0;
+  let _prewarmedGif        = null;
+  const GIF_REVEAL_LATCH_MS = 40;
+  let _gifResumeLatchTimer  = null;
+
+  // ─── GIF momentum state ───────────────────────────────────────────────────
+  // Unsigned pull-force magnitude [0..1], consumed once per slingshot release.
+  let _momentumFactor      = 0;
+  let _gifMomentumCancel   = null; // cancels an active frame-delay decay loop
+
   // ─── State helpers ────────────────────────────────────────────────────────
 
-  function _isTransitioning() { return _phase !== 'idle'; }
-  function _isPulling()       { return _phase === 'pulling'; }
+  function _isTransitioning() { return state.slingshotPhase === 'RELEASE'; }
+  function _isPulling()       { return state.slingshotPhase === 'TENSION'; }
 
-  // Visible UI state contract: 'idle' | 'transitioning' | 'pulling' | 'overlay'
-  function _computeUiState() {
-    if (_phase !== 'idle') return _phase;
-    return window.__SPA_Overlay?.isOpen?.() ? 'overlay' : 'idle';
+  function setSlingshotPhase(phase, amplitude = 0) {
+    state.slingshotPhase = phase;
+    state.slingshotAmplitude = amplitude;
   }
 
-  function _syncUiState() {
-    const section = getSection(_si);
-    document.body.dataset.state = _computeUiState();
-    document.body.dataset.section = section?.id ?? '';
-    document.body.dataset.item = String(_ii);
+  // ─── Navigation helpers ───────────────────────────────────────────────────
+
+  function _getAvailableSections(homeSectionLocked) {
+    return homeSectionLocked ? SPA_SECTIONS.filter((_, i) => i !== 0) : SPA_SECTIONS;
+  }
+
+  function _getNextTarget(si, ii, homeSectionLocked) {
+    const section = getSection(si);
+    if (!section) return null;
+    if (ii + 1 < section.items.length) return { sectionIdx: si, itemIdx: ii + 1 };
+    const avail = _getAvailableSections(homeSectionLocked);
+    const pos   = avail.findIndex(s => s === section);
+    const next  = avail[(pos + 1) % avail.length];
+    return { sectionIdx: SPA_SECTIONS.indexOf(next), itemIdx: 0 };
+  }
+
+  function _getPrevTarget(si, ii, homeSectionLocked) {
+    const section = getSection(si);
+    if (!section) return null;
+    if (ii - 1 >= 0) return { sectionIdx: si, itemIdx: ii - 1 };
+    const avail = _getAvailableSections(homeSectionLocked);
+    const pos   = avail.findIndex(s => s === section);
+    const prev  = avail[(pos - 1 + avail.length) % avail.length];
+    const prevSi = SPA_SECTIONS.indexOf(prev);
+    return { sectionIdx: prevSi, itemIdx: SPA_SECTIONS[prevSi].items.length - 1 };
+  }
+
+  function _getTargetForDirection(direction, si, ii, homeSectionLocked) {
+    return direction === 'next'
+      ? _getNextTarget(si, ii, homeSectionLocked)
+      : _getPrevTarget(si, ii, homeSectionLocked);
+  }
+
+  // ─── Render helpers ───────────────────────────────────────────────────────
+
+  function _getSectionNav() {
+    if (!_sectionNav) {
+      _sectionNav = document.createElement('nav');
+      _sectionNav.id = 'spa-section-nav';
+      _sectionNav.setAttribute('aria-label', 'Sections');
+      document.body.insertBefore(_sectionNav, document.body.firstChild);
+    }
+    return _sectionNav;
+  }
+
+  function _renderSectionNav(si, homeSectionLocked) {
+    const nav = _getSectionNav();
+    nav.innerHTML = '';
+    const sectionsToShow = homeSectionLocked
+      ? SPA_SECTIONS.filter((_, i) => i !== 0)
+      : SPA_SECTIONS;
+    for (const section of sectionsToShow) {
+      const idx = SPA_SECTIONS.indexOf(section);
+      const btn = document.createElement('button');
+      btn.type      = 'button';
+      btn.className = 'spa-nav-btn';
+      btn.textContent = section.label;
+      if (idx === si) {
+        btn.style.fontWeight = 'bold';
+        btn.style.background = '#333';
+        btn.setAttribute('aria-current', 'page');
+      }
+      btn.dataset.action = 'goto-section';
+      btn.dataset.sectionIdx = String(idx);
+      nav.appendChild(btn);
+    }
+  }
+
+  function _renderItemDots(si, ii) {
+    dotsContainer.innerHTML = '';
+    const section = getSection(si);
+    if (!section || section.items.length <= 1) return;
+    section.items.forEach((item, idx) => {
+      const btn = document.createElement('button');
+      btn.type      = 'button';
+      btn.className = 'spa-dot';
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-label', item.label);
+      btn.setAttribute('aria-selected', idx === ii ? 'true' : 'false');
+      btn.dataset.action = 'goto-item';
+      btn.dataset.sectionIdx = String(si);
+      btn.dataset.itemIdx = String(idx);
+      dotsContainer.appendChild(btn);
+    });
+  }
+
+  function _isGifSrc(src) {
+    return /\.gif(?:[?#]|$)/i.test(src || '');
+  }
+
+  function _buildRestartGifSrc(src) {
+    const raw = String(src || '');
+    if (!raw) return raw;
+    const hashIndex = raw.indexOf('#');
+    const base = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+    const hash = hashIndex >= 0 ? raw.slice(hashIndex) : '';
+    const sep = base.includes('?') ? '&' : '?';
+    _gifRestartSeq += 1;
+    return `${base}${sep}spa_gif_restart=${Date.now()}_${_gifRestartSeq}${hash}`;
+  }
+
+  function _getGifDelayScale(f) {
+    const amount = Math.max(0, Math.min(1, Math.abs(f)));
+    const curved = Math.pow(amount, 0.75);
+    return Math.max(0.3, Math.pow(3, -curved));
+  }
+
+  function _ensureGifOrigDelays(animator) {
+    const frames = animator?._frames;
+    if (!frames?.length) return null;
+    if (!Array.isArray(animator._spaOrigDelays) || animator._spaOrigDelays.length !== frames.length) {
+      animator._spaOrigDelays = frames.map((f) => f.delay);
+    }
+    return animator._spaOrigDelays;
+  }
+
+
+  // --- Palindromic GIF cadence experiment ---
+  // Split momentumFactor into cadenceAmplitude (set on pull/release) and cadencePhase (tracks return)
+  let _cadenceAmplitude = 0; // [0,1] set by pull strength
+  let _cadencePhase = 0;     // [0,1] 1=just released, 0=baseline
+  let _cadenceDecayTimer = null;
+
+  function _applyGifCadenceCompression(animator, amplitude, phase) {
+    // amplitude: how strong the effect is (set on release)
+    // phase: how far along the return arc (1→0)
+    const frames = animator?._frames;
+    const origDelays = _ensureGifOrigDelays(animator);
+    if (!frames?.length || !origDelays) return;
+    // Compression is strongest at peak, decays to baseline
+    const mul = _getGifDelayScale(amplitude * phase);
+    for (let i = 0; i < frames.length; i++) {
+      frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
+    }
+  }
+
+
+  function _restoreGifCadence(animator) {
+    const frames = animator?._frames;
+    const origDelays = animator?._spaOrigDelays;
+    if (!frames?.length || !origDelays?.length) return;
+    for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+    _cadenceAmplitude = 0;
+    _cadencePhase = 0;
+    if (_cadenceDecayTimer) {
+      cancelAnimationFrame(_cadenceDecayTimer);
+      _cadenceDecayTimer = null;
+    }
+  }
+
+  function _clearGifResumeLatchTimer() {
+    if (_gifResumeLatchTimer != null) {
+      cancelAnimationFrame(_gifResumeLatchTimer);
+      _gifResumeLatchTimer = null;
+    }
+  }
+
+  function _clearPrewarmedGif() {
+    if (!_prewarmedGif) return;
+    if (_activeGifPlayer !== _prewarmedGif.animator) {
+      try { _restoreGifCadence(_prewarmedGif.animator); } catch (_) {}
+      try { _prewarmedGif.animator?.stop?.(); } catch (_) {}
+    }
+    _prewarmedGif = null;
+  }
+
+  function _primeGifTargetForReveal(si, ii, momentumFactor) {
+    const heroSpec = getHeroSpec(si, ii);
+    if (heroSpec.kind !== 'image' || !_isGifSrc(heroSpec.src)) {
+      _clearPrewarmedGif();
+      return;
+    }
+
+
+    if (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii) {
+      if (momentumFactor > 0 && _prewarmedGif.animator) {
+        _cadenceAmplitude = momentumFactor;
+        _cadencePhase = 1;
+        _applyGifCadenceCompression(_prewarmedGif.animator, _cadenceAmplitude, _cadencePhase);
+        _startCadenceDecay(_prewarmedGif.animator);
+      }
+      return;
+    }
+
+
+    _clearPrewarmedGif();
+
+
+    const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
+    const img = document.createElement('img');
+    img.className = 'spa-hero-image';
+    img.src = gifRenderSrc;
+    img.width = 320;
+    img.height = 320;
+    img.style.objectFit = 'contain';
+    img.setAttribute('draggable', 'false');
+
+    const gifCanvas = document.createElement('canvas');
+    gifCanvas.className = 'spa-hero-canvas';
+    gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+    gifCanvas._gifReady = false;
+
+    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null, frozenAtToSurface: false, firstFrameReady: false };
+    _prewarmedGif = token;
+
+    // When the animator is ready, apply cadence if needed
+    // (This is a safe place to hook up the new variables)
+    // ...existing code...
+  }
+
+  function _startCadenceDecay(animator) {
+    if (_cadenceDecayTimer) cancelAnimationFrame(_cadenceDecayTimer);
+    function decayStep() {
+      if (_cadencePhase > 0) {
+        _cadencePhase -= 0.03; // Decay rate (tweak as needed)
+        if (_cadencePhase < 0) _cadencePhase = 0;
+        _applyGifCadenceCompression(animator, _cadenceAmplitude, _cadencePhase);
+        _cadenceDecayTimer = requestAnimationFrame(decayStep);
+      } else {
+        _restoreGifCadence(animator);
+      }
+    }
+    _cadenceDecayTimer = requestAnimationFrame(decayStep);
+  }
+
+    ensureGifRuntime().then(() => {
+      if (_prewarmedGif !== token || typeof window.gifler !== 'function') return;
+      window.gifler(gifRenderSrc).get(function(animator) {
+        if (_prewarmedGif !== token) {
+          try { animator.stop(); } catch (_) {}
+          return;
+        }
+        token.animator = animator;
+        let firstFrameDrawn = false;
+        animator.onDrawFrame = function(ctx, frame) {
+          if (!frame?.buffer) return;
+          ctx.drawImage(frame.buffer, frame.x, frame.y);
+          gifCanvas._gifReady = true;
+          if (!firstFrameDrawn) {
+            firstFrameDrawn = true;
+            token.firstFrameReady = true;
+            // Freeze at frame 0 immediately after first draw
+            setTimeout(() => { try { animator.stop(); } catch (_) {} }, 0);
+          }
+        };
+        animator.animateInCanvas(gifCanvas);
+        _ensureGifOrigDelays(animator);
+        // Do NOT apply momentum cadence during prewarm; only after reveal.
+      });
+    }).catch(() => {});
+  }
+
+  // ─── GIF frame-rate momentum ─────────────────────────────────────────────
+  //
+  // After a slingshot release onto a GIF hero, we:
+  //   1. Swap the visible element from <img> (native, uncontrollable) to the
+  //      gifCanvas (gifler-driven, delay-controllable).
+  //   2. Temporarily compress frame delays by Math.pow(2, -factor), where
+  //      factor is magnitude-only in [0, 1].
+  //   3. Run a rAF decay loop until |factor| < 0.02, then restore original
+  //      delays but keep rendering on the same canvas surface.
+  //
+  function _startGifMomentum(animator, gifCanvas, img, factor) {
+    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
+    const frames = animator._frames;
+    if (!frames || !frames.length) return;
+
+    // Clamp factor to [0, 1]: magnitude-only cadence compression.
+    // Direction does not affect timing sign in this patch.
+    const clampedFactor = Math.max(0, Math.min(1, Math.abs(factor)));
+
+    // Snapshot original frame delays (gifler stores delay in centiseconds).
+    const origDelays = _ensureGifOrigDelays(animator) || frames.map((f) => f.delay);
+
+    let current = clampedFactor;
+    let rafId;
+    let swapped = false;
+
+    function applyDelays(f) {
+      const mul = _getGifDelayScale(f);
+      for (let i = 0; i < frames.length; i++) {
+        frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
+      }
+    }
+
+    // Swap display from native <img> (uncontrollable speed) to gifCanvas.
+    // Waits for gifCanvas._gifReady so the first drawn frame is already there.
+    // Uses .spa-hero-image class so sizing/border-radius matches the img exactly.
+    function swapIn() {
+      img.style.display = 'none';
+      gifCanvas.style.cssText = ''; // clear position:absolute;left:-9999px override
+      gifCanvas.classList.add('spa-hero-image');
+      swapped = true;
+    }
+
+    function swapOut() {
+      if (!swapped) return;
+      gifCanvas.classList.remove('spa-hero-image');
+      gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+      if (img.isConnected) img.style.display = '';
+      swapped = false;
+    }
+
+    function restoreDelays() {
+      for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
+    }
+
+    function tick() {
+      if (!animator._running || !gifCanvas.isConnected) {
+        restoreDelays(); swapOut(); _gifMomentumCancel = null; return;
+      }
+      // Wait for gifler to render at least one frame before swapping to canvas.
+      if (!swapped) {
+        if (gifCanvas._gifReady) swapIn();
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+      if (Math.abs(current) < 0.02) {
+        // End momentum without a canvas->img handoff. Keeping the same visual
+        // surface avoids endpoint duplication caused by unsynced playback sources.
+        restoreDelays();
+        _gifMomentumCancel = () => { restoreDelays(); swapOut(); _gifMomentumCancel = null; };
+        return;
+      }
+      current *= 0.93;
+      applyDelays(current);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    // Apply initial delay scaling immediately so timing starts before swap.
+    applyDelays(current);
+    rafId = requestAnimationFrame(tick);
+    _gifMomentumCancel = () => { cancelAnimationFrame(rafId); restoreDelays(); swapOut(); _gifMomentumCancel = null; };
+  }
+
+  function _renderHeroDOM(si, ii) {
+    _clearGifResumeLatchTimer();
+    // Cancel any running momentum decay before wiping the container.
+    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
+    // Stop the gifler player we own before wiping the container
+    if (_activeGifPlayer) {
+      try { _activeGifPlayer.stop(); } catch (_) {}
+      _activeGifPlayer = null;
+    }
+    heroContainer.innerHTML = '';
+
+    const section = getSection(si);
+    const item    = getItem(si, ii);
+    if (!section || !item) return;
+
+    // Delegate to external view module if registered
+    const viewModule = window.__SPA_Views?.[section.id];
+    if (viewModule?.mount) { viewModule.mount(item.id, heroContainer); return; }
+
+    const heroSpec    = getHeroSpec(si, ii);
+    const clickAction = getClickAction(si, ii);
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'spa-hero';
+    wrapper.setAttribute('draggable', 'false');
+    wrapper.addEventListener('dragstart', (e) => e.preventDefault());
+
+    if (clickAction) {
+      wrapper.classList.add('spa-hero--linkable');
+      wrapper.setAttribute('role', 'link');
+      wrapper.setAttribute('tabindex', '0');
+      wrapper.dataset.action = 'hero-action';
+      wrapper.dataset.clickAction = clickAction;
+    }
+
+    if (heroSpec.kind === 'image') {
+      if (_isGifSrc(heroSpec.src)) {
+        const capturedMomentum = _momentumFactor;
+        _momentumFactor = 0;
+
+        const prewarmed = (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii)
+          ? _prewarmedGif
+          : null;
+
+        if (prewarmed?.img && prewarmed.gifCanvas) {
+          const img = prewarmed.img;
+          const gifCanvas = prewarmed.gifCanvas;
+          wrapper.appendChild(img);
+          wrapper.appendChild(gifCanvas);
+          if (prewarmed.animator) {
+            _activeGifPlayer = prewarmed.animator;
+            if (gifCanvas._gifReady) {
+              // Reveal uses the same frozen prewarmed frame first, then resume
+              // sequencing after a short visual latch.
+              img.style.display = 'none';
+              gifCanvas.style.cssText = '';
+              gifCanvas.classList.add('spa-hero-image');
+            }
+
+            const resumeWithLatch = prewarmed.frozenAtToSurface && !prewarmed.animator._running;
+            if (resumeWithLatch) {
+              _gifResumeLatchTimer = requestAnimationFrame(() => {
+                _gifResumeLatchTimer = null;
+                if (!gifCanvas.isConnected) return;
+                try { prewarmed.animator.start(); } catch (_) {}
+                prewarmed.frozenAtToSurface = false;
+                if (capturedMomentum !== 0) {
+                  _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
+                }
+              });
+            } else if (capturedMomentum !== 0) {
+              _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
+            }
+          }
+          _prewarmedGif = null;
+        } else {
+          const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
+          const img = document.createElement('img');
+          img.className = 'spa-hero-image';
+          img.src       = gifRenderSrc;
+          img.width     = 320;
+          img.height    = 320;
+          img.style.objectFit = 'contain';
+          img.setAttribute('draggable', 'false');
+          wrapper.appendChild(img);
+
+          const gifCanvas = document.createElement('canvas');
+          gifCanvas.className = 'spa-hero-canvas';
+          gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
+          gifCanvas._gifReady = false;
+          wrapper.appendChild(gifCanvas);
+          ensureGifRuntime().then(() => {
+            if (!gifCanvas.isConnected || typeof window.gifler !== 'function') return;
+            window.gifler(gifRenderSrc).get(function(animator) {
+              if (!gifCanvas.isConnected) {
+                try { animator.stop(); } catch (_) {}
+                return;
+              }
+              animator.onDrawFrame = function(ctx, frame) {
+                if (!frame?.buffer) return;
+                ctx.drawImage(frame.buffer, frame.x, frame.y);
+                gifCanvas._gifReady = true;
+              };
+              animator.animateInCanvas(gifCanvas);
+              _ensureGifOrigDelays(animator);
+              _activeGifPlayer = animator;
+              // Start frame-rate momentum decay if a slingshot released into this hero.
+              if (capturedMomentum !== 0) {
+                _startGifMomentum(animator, gifCanvas, img, capturedMomentum);
+              }
+            });
+          }).catch(() => {});
+        }
+      } else {
+        const img = document.createElement('img');
+        img.className = 'spa-hero-image';
+        img.src       = heroSpec.src;
+        img.width     = 320;
+        img.height    = 320;
+        img.style.objectFit = 'contain';
+        img.setAttribute('draggable', 'false');
+        wrapper.appendChild(img);
+      }
+    } else {
+      wrapper.classList.add('spa-hero--text');
+      const textEl = document.createElement('div');
+      textEl.className   = 'spa-hero-text';
+      textEl.textContent = heroSpec.text || item.label;
+      wrapper.appendChild(textEl);
+    }
+
+    heroContainer.appendChild(wrapper);
+  }
+
+  function _buildRenderInput(si, ii, phase) {
+    const section = getSection(si);
+    const item    = getItem(si, ii);
+    if (!section || !item) return null;
+
+    const heroSpec   = getHeroSpec(si, ii);
+    const viewModule = window.__SPA_Views?.[section.id];
+
+    if (phase === 'from') {
+      // GIF hero rendered by gifler — canvas holds the current frame once ready
+      const liveGifCanvas = heroContainer.querySelector('canvas.spa-hero-canvas');
+      if (liveGifCanvas && liveGifCanvas._gifReady === true && liveGifCanvas.width > 0 && liveGifCanvas.height > 0) {
+        return { type: 'element', element: liveGifCanvas };
+      }
+
+      // Live hero element in DOM
+      const liveImg = heroContainer.querySelector('.spa-hero-image');
+      if (liveImg) return { type: 'element', element: liveImg };
+
+      const liveHero = heroContainer.querySelector('.spa-hero');
+      if (liveHero) return { type: 'textElement', element: liveHero };
+
+      // Overlay inline element
+      if (overlayRoot?.style.display !== 'none') {
+        const inlineEl = overlayRoot.querySelector('.spa-overlay--inline');
+        if (inlineEl) return { type: 'textElement', element: inlineEl };
+      }
+
+      // View probe
+      if (viewModule?.buildHeroProbe) {
+        const probe = viewModule.buildHeroProbe(item.id, heroContainer);
+        if (probe) return { type: 'textElement', element: probe.element, cleanup: probe.cleanup };
+      }
+
+      if (heroSpec.kind === 'image') return { type: 'gif', src: heroSpec.src };
+      return { type: 'text', text: heroSpec.text || item.label };
+    }
+
+    // phase === 'to'
+    if (heroSpec.kind === 'image') {
+      // If the target GIF is already prewarmed and has a live frame, use that
+      // exact canvas as the transition "to" truth so particles reform toward
+      // the same moving surface that reveal will show.
+      if (_isGifSrc(heroSpec.src)) {
+        const prewarmedCanvas =
+          _prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii
+            ? _prewarmedGif.gifCanvas
+            : null;
+        if (
+          prewarmedCanvas &&
+          prewarmedCanvas._gifReady === true &&
+          prewarmedCanvas.width > 0 &&
+          prewarmedCanvas.height > 0
+        ) {
+          if (_prewarmedGif?.animator && !_prewarmedGif.frozenAtToSurface) {
+            try { _prewarmedGif.animator.stop(); } catch (_) {}
+            _prewarmedGif.frozenAtToSurface = true;
+          }
+          return { type: 'element', element: prewarmedCanvas };
+        }
+      }
+      return { type: 'gif', src: heroSpec.src };
+    }
+
+    if (viewModule?.buildHeroProbe) {
+      const probe = viewModule.buildHeroProbe(item.id, heroContainer);
+      if (probe) return { type: 'textElement', element: probe.element, cleanup: probe.cleanup };
+    }
+
+    // Build an offscreen probe that mirrors renderHeroDOM for text heroes
+    const probeWrap = document.createElement('div');
+    probeWrap.className = 'spa-hero spa-hero--text';
+    probeWrap.style.cssText =
+      `position:absolute;left:-9999px;top:0;` +
+      `width:${heroContainer.offsetWidth || 320}px;pointer-events:none;`;
+    const probeText = document.createElement('div');
+    probeText.className = 'spa-hero-text';
+    probeText.textContent = heroSpec.text || item.label;
+    probeWrap.appendChild(probeText);
+    document.body.appendChild(probeWrap);
+    return { type: 'textElement', element: probeWrap, cleanup: () => probeWrap.remove() };
+  }
+
+  async function _buildSurface(si, ii, phase) {
+    const input = _buildRenderInput(si, ii, phase);
+    if (!input) return null;
+    try {
+      const surface = await rasterizeHero(input);
+      if (input.cleanup) input.cleanup();
+      return surface;
+    } catch (_) {
+      if (input.cleanup) input.cleanup();
+      return null;
+    }
   }
 
   function _setPhase(nextPhase) {
-    _phase = nextPhase;
-    _syncUiState();
+    state.phase = nextPhase;
   }
 
-  function _render() {
-    navRenderer.updateSectionNav(_si, _homeSectionLocked);
-    navRenderer.updateItemDots(_si, _ii);
-    heroRenderer.renderHeroDOM(_si, _ii);
-    _syncUiState();
+  function _activate(si, ii) {
+    const section = getSection(si), item = getItem(si, ii);
+    if (section && item) try { window.__SPA_Views?.[section.id]?.onActivate?.(item.id); } catch (_) {}
+  }
+
+  function _deactivate(si, ii) {
+    const section = getSection(si), item = getItem(si, ii);
+    if (section && item) try { window.__SPA_Views?.[section.id]?.onDeactivate?.(item.id); } catch (_) {}
+  }
+
+  function _commitPosition(si, ii) {
+    state.si = si;
+    state.ii = ii;
+  }
+
+  function _commitPositionAndView(si, ii, viewOptions) {
+    _commitPosition(si, ii);
+    _commitView(si, ii, viewOptions);
+  }
+
+  function _commitView(si = state.si, ii = state.ii, { hero = true, nav = true } = {}) {
+    if (hero) _renderHeroDOM(si, ii);
+    if (nav) {
+      _renderSectionNav(si, state.homeSectionLocked);
+      _renderItemDots(si, ii);
+    }
+  }
+
+  async function _ensureRuntimeFor(si) {
+    const section = getSection(si);
+    if (section) await ensureSectionRuntime(section.id);
   }
 
   function _inferAutoPullVector(nextSi, nextIi) {
-    if (nextSi === _si && nextIi === _ii) return { x: 1, y: 0 };
-    if (nextSi === _si) return { x: nextIi > _ii ? 1 : -1, y: 0 };
-    return { x: nextSi > _si ? 1 : -1, y: 0 };
+    if (nextSi === state.si && nextIi === state.ii) return { x: 1, y: 0 };
+    if (nextSi === state.si) return { x: nextIi > state.ii ? 1 : -1, y: 0 };
+    return { x: nextSi > state.si ? 1 : -1, y: 0 };
   }
 
-  async function _withTransition(run, opts = {}) {
-    const {
-      stopTracking = false,
-      startTracking = false,
-      drainQueue = false
-    } = opts;
+  async function _withTransition(run, { drainQueue = false } = {}) {
     _setPhase('transitioning');
-    if (stopTracking) surfaceManager.stopTracking();
     try {
       await run();
     } finally {
       _setPhase('idle');
-      if (startTracking) surfaceManager.startTracking(_si, _ii);
       if (drainQueue) _drainQueue();
     }
+  }
+
+  async function _withRevealCommit(run, commit, fallbackCommit = null) {
+    let committedDuringReveal = false;
+    try {
+      await run(async () => {
+        await commit();
+        committedDuringReveal = true;
+      });
+    } finally {
+      if (!committedDuringReveal && fallbackCommit) await fallbackCommit();
+    }
+    return committedDuringReveal;
+  }
+
+  async function _buildSurfacePair(fromTask, toTask) {
+    try {
+      return await Promise.all([fromTask(), toTask()]);
+    } catch (_) {
+      return [null, null];
+    }
+  }
+
+  async function _rasterizeProbeSurface(probe) {
+    if (!probe) return null;
+    try {
+      document.body.appendChild(probe.element);
+      return await rasterizeHero({ type: 'textElement', element: probe.element });
+    } catch (_) {
+      return null;
+    } finally {
+      probe.cleanup?.();
+    }
+  }
+
+  async function _runSubsystemTransform({ fromTask, toTask, reveal, fallback = null }) {
+    const [fromSurf, toSurf] = await _buildSurfacePair(fromTask, toTask);
+    if (!fromSurf || !toSurf) {
+      // Continuity rule: missing sampled surfaces should not suppress reveal.
+      // Callers can override with an explicit fallback when reveal is unsafe.
+      if (fallback) await fallback();
+      else await reveal();
+      return false;
+    }
+
+    await transitionKernel.runTransition(fromSurf, toSurf, {
+      onBeforeReveal: async () => {
+        await reveal();
+      }
+    });
+    return true;
   }
 
   // ─── goTo ─────────────────────────────────────────────────────────────────
 
   async function goTo(nextSi, nextIi) {
-    if (_homeSectionLocked && nextSi === 0 && _si !== 0) return;
-    if (nextSi === _si && nextIi === _ii && !_isPulling()) return;
+    if (state.homeSectionLocked && nextSi === 0 && state.si !== 0) return;
+    if (nextSi === state.si && nextIi === state.ii && !_isPulling()) return;
     if (_isTransitioning() || _isPulling()) {
-      _queuedTarget = { sectionIdx: nextSi, itemIdx: nextIi };
+      state.queuedTarget = { sectionIdx: nextSi, itemIdx: nextIi };
       return;
     }
 
     await _withTransition(async () => {
-      const fromSi = _si, fromIi = _ii;
-      const outSection = getSection(fromSi), outItem = getItem(fromSi, fromIi);
-      if (outSection && outItem) try { window.__SPA_Views?.[outSection.id]?.onDeactivate?.(outItem.id); } catch (_) {}
+      await Promise.all([_ensureRuntimeFor(state.si), _ensureRuntimeFor(nextSi)]);
+      const fromSi = state.si, fromIi = state.ii;
+      _deactivate(fromSi, fromIi);
 
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(fromSi, fromIi, 'from'), surfaceManager.buildSurface(nextSi, nextIi, 'to')]); } catch (_) {}
+      const [fromSurf, toSurf] = await _buildSurfacePair(
+        () => _buildSurface(fromSi, fromIi, 'from'),
+        () => _buildSurface(nextSi, nextIi, 'to')
+      );
 
-      let didRenderDuringReveal = false;
       try {
-        await transitionKernel.runSlingshotRelease({
+        await _withRevealCommit((onBeforeReveal) => transitionKernel.runSlingshotRelease({
           pulledParticles: null,
           pulledCanvasW: 0,
           pulledCanvasH: 0,
@@ -122,59 +770,40 @@ export function createAppKernel({
           toSurface: toSurf,
           autoPullVector: _inferAutoPullVector(nextSi, nextIi),
           onBeforeReveal: async () => {
-            _closeOverlayForNav();
-            if (nextSi !== 0 && !_homeSectionLocked) _homeSectionLocked = true;
-            heroRenderer.renderHeroDOM(nextSi, nextIi);
-            navRenderer.updateSectionNav(nextSi, _homeSectionLocked);
-            navRenderer.updateItemDots(nextSi, nextIi);
-            didRenderDuringReveal = true;
+            if (window.__SPA_Overlay?.isOpen()) window.__SPA_Overlay.close({ restore: false });
+            if (nextSi !== 0 && !state.homeSectionLocked) state.homeSectionLocked = true;
+            await onBeforeReveal();
           }
-        });
+        }), () => _commitPositionAndView(nextSi, nextIi), () => _commitPositionAndView(nextSi, nextIi));
       } finally {
-        _si = nextSi; _ii = nextIi;
-
-        const inSection = getSection(nextSi), inItem = getItem(nextSi, nextIi);
-        if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
-
-        if (!didRenderDuringReveal) _render();
+        _activate(nextSi, nextIi);
       }
-    }, { stopTracking: true, startTracking: true, drainQueue: true });
+    }, { drainQueue: true });
   }
 
   // ─── Overlay lifecycle ────────────────────────────────────────────────────
 
-  function _closeOverlayForNav() {
-    window.__SPA_Overlay?.isOpen() && window.__SPA_Overlay.close({ restore: false });
-  }
-
   async function openOverlayWithTransition(overlayId) {
     if (_isTransitioning() || _isPulling()) return;
+    await ensureOverlayRuntime().catch(() => {});
     const overlay = window.__SPA_Overlay;
     if (!overlay) return;
 
     const probe = overlay.buildProbe?.(overlayId, {}, { inline: true });
-    if (!probe) { overlay.open(overlayId); _syncUiState(); return; }
+    if (!probe) { overlay.open(overlayId); return; }
 
     await _withTransition(async () => {
-      let fromSurf, toSurf;
-      try {
-        document.body.appendChild(probe.element);
-        [fromSurf, toSurf] = await Promise.all([
-          surfaceManager.buildSurface(_si, _ii, 'from'),
-          rasterizeHero({ type: 'textElement', element: probe.element })
-        ]);
-      } catch (_) {
-        probe.cleanup?.();
-        surfaceManager.startTracking(_si, _ii);
-        overlay.open(overlayId);
-        _syncUiState();
-        return;
-      }
-
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { probe.cleanup?.(); overlay.openInline(overlayId, {}, heroContainer); }
+      await _runSubsystemTransform({
+        fromTask: () => _buildSurface(state.si, state.ii, 'from'),
+        toTask: () => _rasterizeProbeSurface(probe),
+        reveal: async () => {
+          overlay.openInline(overlayId, {}, heroContainer);
+        },
+        fallback: async () => {
+          overlay.open(overlayId);
+        }
       });
-    }, { stopTracking: true });
+    });
   }
 
   async function closeOverlayWithTransition() {
@@ -182,87 +811,12 @@ export function createAppKernel({
     if (!overlay?.isOpen() || _isTransitioning() || _isPulling()) return;
 
     await _withTransition(async () => {
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
-
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { overlay.close({ restore: false }); heroRenderer.renderHeroDOM(_si, _ii); }
-      });
-    }, { startTracking: true });
-  }
-
-  // ─── Game mode lifecycle ──────────────────────────────────────────────────
-
-  async function enterCurrentGameWithTransition() {
-    if (_isTransitioning() || _isPulling()) return;
-    const gameNav = window.__SPA_GameNav;
-    if (!gameNav) return;
-    const probe = gameNav.buildHeroProbe?.(_si, _ii);
-    if (!probe) return;
-
-    await _withTransition(async () => {
-      document.body.appendChild(probe.element);
-
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), rasterizeHero({ type: 'textElement', element: probe.element })]); }
-      catch (_) { probe.cleanup?.(); return; }
-      probe.cleanup?.();
-
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => {
-          _isGameActive = true;
-          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
-        }
-      });
-    }, { stopTracking: true });
-  }
-
-  async function exitGameToCurrentItem() {
-    if (_isTransitioning() || _isPulling()) return;
-
-    await _withTransition(async () => {
-      let fromSurf, toSurf;
-      try { [fromSurf, toSurf] = await Promise.all([surfaceManager.buildSurface(_si, _ii, 'from'), surfaceManager.buildSurface(_si, _ii, 'to')]); } catch (_) {}
-
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => { _isGameActive = false; heroRenderer.renderHeroDOM(_si, _ii); }
-      });
-    }, { startTracking: true });
-  }
-
-  async function gameNavigate(direction) {
-    const gameNav = window.__SPA_GameNav;
-    if (!gameNav || _isTransitioning() || _isPulling()) return;
-    const from = gameNav.getFromTarget?.();
-    const to   = gameNav.getToTarget?.(direction);
-    if (!from || !to) return;
-
-    const fromProbe = gameNav.buildHeroProbe?.(from.sectionIdx, from.itemIdx);
-    const toProbe   = gameNav.buildHeroProbe?.(to.sectionIdx,   to.itemIdx);
-    if (!fromProbe || !toProbe) { fromProbe?.cleanup?.(); toProbe?.cleanup?.(); return; }
-
-    await _withTransition(async () => {
-      document.body.appendChild(fromProbe.element);
-      document.body.appendChild(toProbe.element);
-
-      let fromSurf, toSurf;
-      try {
-        [fromSurf, toSurf] = await Promise.all([
-          rasterizeHero({ type: 'textElement', element: fromProbe.element }),
-          rasterizeHero({ type: 'textElement', element: toProbe.element })
-        ]);
-      } catch (_) { fromProbe.cleanup?.(); toProbe.cleanup?.(); return; }
-      fromProbe.cleanup?.(); toProbe.cleanup?.();
-
-      await transitionKernel.runTransition(fromSurf, toSurf, {
-        onBeforeReveal: async () => {
-          _si = to.sectionIdx;
-          _ii = to.itemIdx;
-          navRenderer.updateSectionNav(_si, _homeSectionLocked);
-          navRenderer.updateItemDots(_si, _ii);
-          _syncUiState();
-          gameNav.commitTo?.(to.sectionIdx, to.itemIdx);
-          window.__SPA_Views?.['games']?.mount?.('asymptote', heroContainer);
+      await _runSubsystemTransform({
+        fromTask: () => _buildSurface(state.si, state.ii, 'from'),
+        toTask: () => _buildSurface(state.si, state.ii, 'to'),
+        reveal: async () => {
+          overlay.close({ restore: false });
+          _commitView(state.si, state.ii, { nav: false });
         }
       });
     });
@@ -273,45 +827,40 @@ export function createAppKernel({
   function onTap() {
     if (window.__SPA_Overlay?.shouldSuppressTap?.()) return;
     if (window.__SPA_Overlay?.isOpen()) { void closeOverlayWithTransition(); return; }
-    if (_isGameActive) { window.__SPA_GameNav?.onTap?.(); return; }
-    const action = getClickAction(_si, _ii);
+    const action = getClickAction(state.si, state.ii);
     if (action) _handleHeroAction(action);
   }
 
   function onLock({ direction }) {
-    if (_phase === 'transitioning') {
-      const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
-      if (t) _queuedTarget = { sectionIdx: t.sectionIdx, itemIdx: t.itemIdx };
+    if (state.phase === 'transitioning') {
+      const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
+      if (t) state.queuedTarget = { sectionIdx: t.sectionIdx, itemIdx: t.itemIdx };
       return false;
     }
     if (_isPulling()) return false;
 
     let targetSi, targetIi;
-    if (_isGameActive && window.__SPA_GameNav) {
-      const t = window.__SPA_GameNav.getToTarget?.(direction);
-      if (!t) return false;
-      targetSi = t.sectionIdx; targetIi = t.itemIdx;
-    } else {
-      const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
-      if (!t) return false;
-      targetSi = t.sectionIdx; targetIi = t.itemIdx;
-    }
+    const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
+    if (!t) return false;
+    targetSi = t.sectionIdx; targetIi = t.itemIdx;
 
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
+    _momentumFactor = 0;
+    // Start target GIF sequencing as early as possible during pull.
+    _primeGifTargetForReveal(targetSi, targetIi, 0);
     _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
 
     // Build surfaces in parallel while the user is pulling
-    const fp = surfaceManager.buildSurface(_si, _ii, 'from');
-    const tp = surfaceManager.buildSurface(targetSi, targetIi, 'to');
+    const fp = _ensureRuntimeFor(state.si).then(() => _buildSurface(state.si, state.ii, 'from'));
+    const tp = _ensureRuntimeFor(targetSi).then(() => _buildSurface(targetSi, targetIi, 'to'));
     _pullFromPromise = fp;
     _pullToPromise   = tp;
     fp.then(s => { if (_pullFromPromise === fp) _pullFromSurface = s; }).catch(() => {});
     tp.then(s => { if (_pullToPromise   === tp) _pullToSurface   = s; }).catch(() => {});
 
-    surfaceManager.stopTracking();
     transitionKernel.alignCanvas({ width: 320, height: 320 }, { width: 320, height: 320 });
     transitionKernel.showCanvas();
     transitionKernel.hideHero();
@@ -329,6 +878,21 @@ export function createAppKernel({
     } else {
       _pullParticles = null;
     }
+    // Track pull force magnitude for GIF frame cadence compression on reveal.
+    // Direction is intentionally ignored; both directions accelerate first.
+    if (Math.abs(pullVector.x) > 0.1) {
+      _momentumFactor = Math.max(0, Math.min(1, pullNormalized));
+      // If target GIF prewarm is already alive, update cadence immediately so
+      // the pre-reveal motion reflects current pull force.
+      if (
+        _prewarmedGif &&
+        _prewarmedGif.si === _pullTargetSi &&
+        _prewarmedGif.ii === _pullTargetIi &&
+        _prewarmedGif.animator
+      ) {
+        _applyGifCadenceCompression(_prewarmedGif.animator, _momentumFactor);
+      }
+    }
   }
 
   async function onRelease({ pullNormalized }) {
@@ -336,56 +900,56 @@ export function createAppKernel({
 
     const targetSi = _pullTargetSi, targetIi = _pullTargetIi;
 
-    let fromSurf, toSurf;
-    try {
-      [fromSurf, toSurf] = await Promise.all([
-        _pullFromPromise || surfaceManager.buildSurface(_si, _ii, 'from'),
-        _pullToPromise   || surfaceManager.buildSurface(targetSi, targetIi, 'to')
-      ]);
-    } catch (_) { cancelSlingshot(); return; }
+    // Ensure GIF target prewarm starts before we sample transition surfaces.
+    _primeGifTargetForReveal(targetSi, targetIi, _momentumFactor);
+
+    const [fromSurf, toSurf] = await _buildSurfacePair(
+      () => _pullFromPromise || _buildSurface(state.si, state.ii, 'from'),
+      // Rebuild "to" at release-time so prewarmed GIF canvas can be sampled
+      // when ready; fallback remains the existing static GIF path.
+      () => _buildSurface(targetSi, targetIi, 'to')
+    );
 
     if (!fromSurf || !toSurf) { cancelSlingshot(); return; }
 
     try {
-      await transitionKernel.runSlingshotRelease({
+      await _withRevealCommit((onBeforeReveal) => transitionKernel.runSlingshotRelease({
         pulledParticles: _pullParticles,
         pulledCanvasW:   _pullCanvasW,
         pulledCanvasH:   _pullCanvasH,
         fromSurface:     fromSurf,
         toSurface:       toSurf,
         onBeforeReveal:  async () => {
-          heroRenderer.renderHeroDOM(targetSi, targetIi);
-          navRenderer.updateSectionNav(targetSi, _homeSectionLocked);
-          navRenderer.updateItemDots(targetSi, targetIi);
+          await onBeforeReveal();
         }
-      });
-
-      _si = targetSi; _ii = targetIi;
-      if (_isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(_si, _ii);
-
-      const inSection = getSection(_si), inItem = getItem(_si, _ii);
-      if (inSection && inItem) try { window.__SPA_Views?.[inSection.id]?.onActivate?.(inItem.id); } catch (_) {}
+      }), () => _commitPositionAndView(targetSi, targetIi), () => _commitPositionAndView(targetSi, targetIi));
+      _activate(state.si, state.ii);
     } catch (_) {}
 
     _cleanupPull();
-    surfaceManager.startTracking(_si, _ii);
     _drainQueue();
   }
 
-  function onCancel() { cancelSlingshot(); }
+  function onCancel() {
+    setSlingshotPhase('REST', 0);
+    cancelSlingshot();
+  }
 
   function cancelSlingshot() {
+    setSlingshotPhase('REST', 0);
+    _momentumFactor = 0;
+    _clearGifResumeLatchTimer();
+    _clearPrewarmedGif();
+    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
     transitionKernel.hideCanvas();
     const heroEl = heroContainer.firstElementChild;
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
     _cleanupPull();
-    surfaceManager.startTracking(_si, _ii);
-    const section = getSection(_si), item = getItem(_si, _ii);
-    if (section && item) try { window.__SPA_Views?.[section.id]?.onActivate?.(item.id); } catch (_) {}
+    _activate(state.si, state.ii);
   }
 
   function _cleanupPull() {
-    _setPhase('idle');
+    setSlingshotPhase('REST', 0);
     _pullTargetSi = null; _pullTargetIi = null;
     _pullFromSurface = null; _pullToSurface = null;
     _pullFromPromise = null; _pullToPromise = null;
@@ -396,9 +960,43 @@ export function createAppKernel({
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   function navigate(direction) {
-    if (_isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
-    const t = getTargetForDirection(direction, _si, _ii, _homeSectionLocked);
+    const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
+  }
+
+  function dispatchInputIntent(intent, payload = {}) {
+    if (intent === 'navigate') {
+      const direction = payload.direction;
+      if (direction === 'prev' || direction === 'next') navigate(direction);
+      return;
+    }
+
+    if (intent === 'goto') {
+      const sectionIdx = payload.sectionIdx;
+      const itemIdx = payload.itemIdx;
+      if (Number.isInteger(sectionIdx) && Number.isInteger(itemIdx)) void goTo(sectionIdx, itemIdx);
+      return;
+    }
+
+    if (intent === 'hero-action') {
+      const clickAction = payload.clickAction;
+      if (typeof clickAction === 'string' && clickAction.length > 0) _handleHeroAction(clickAction);
+      return;
+    }
+
+    if (intent === 'close-overlay') {
+      void closeOverlayWithTransition();
+      return;
+    }
+
+    if (intent === 'restore-current-item-hero') {
+      _commitView(state.si, state.ii, { nav: false });
+      return;
+    }
+
+    if (intent === 'cancel-slingshot') {
+      cancelSlingshot();
+    }
   }
 
   // ─── Hero action handler ──────────────────────────────────────────────────
@@ -419,10 +1017,16 @@ export function createAppKernel({
   // ─── Queue drain ──────────────────────────────────────────────────────────
 
   function _drainQueue() {
-    if (_queuedTarget) {
-      const q = _queuedTarget; _queuedTarget = null;
+    if (state.queuedTarget) {
+      const q = state.queuedTarget; state.queuedTarget = null;
       void goTo(q.sectionIdx, q.itemIdx);
     }
+  }
+
+  function start(si = 0, ii = 0) {
+    _commitPosition(si, ii);
+    _commitView();
+    _activate(state.si, state.ii);
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -431,6 +1035,7 @@ export function createAppKernel({
     // Navigation
     goTo,
     navigate,
+    dispatchInputIntent,
     // Slingshot
     onTap,
     onLock,
@@ -441,24 +1046,16 @@ export function createAppKernel({
     // Overlay
     openOverlayWithTransition,
     closeOverlayWithTransition,
-    // Game mode
-    enterCurrentGameWithTransition,
-    exitGameToCurrentItem,
-    gameNavigate,
-    setGameActive(active) { _isGameActive = !!active; _syncUiState(); },
     // State accessors
-    getSi() { return _si; },
-    getIi() { return _ii; },
+    getSi() { return state.si; },
+    getIi() { return state.ii; },
     isTransitioning: _isTransitioning,
     // Hero action (used by heroRenderer onAction callback)
     onHeroAction: _handleHeroAction,
-    // Render
-    render: _render,
+    // Lifecycle
+    start,
     // Window API helpers
     restoreCurrentItemHero() {
-      heroRenderer.renderHeroDOM(_si, _ii);
-      surfaceManager.startTracking(_si, _ii);
-      _syncUiState();
+      _commitView(state.si, state.ii, { nav: false });
     }
   };
-}
