@@ -23,6 +23,57 @@ Do not open `index.html` directly with a `file://` URL. The app uses
 (GIF frame capture, overlays, and games), and those paths are meant to be loaded
 by the browser from the same HTTP origin.
 
+
+## Minimum Runtime Deployment Checklist
+
+To ensure the app works everywhere (local, Node, Python, Cloudflare, Windows, Mac):
+
+1. **Serve over HTTP, not file://**
+  - Use `python3 -m http.server`, `npx serve .`, or `http-server -p 8000` (see below).
+  - Opening `index.html` directly will break module and asset loading.
+
+2. **All assets must be present and committed**
+  - Ensure `assets/`, `gifs/`, and all images/GIFs are in the repo and deployed.
+  - Case matters! `assets/hero.png` ≠ `assets/Hero.png` on most hosts.
+
+3. **Correct asset and module paths**
+  - Use paths relative to the project root (e.g., `/assets/...`).
+  - Check browser dev tools for 404 errors if assets don’t load.
+
+4. **Single entry point for SPAs**
+  - For static hosts (Cloudflare, Netlify, Vercel), configure all routes to serve `index.html` (SPA fallback) if using client-side routing.
+
+5. **No duplicated clocks or surfaces**
+  - Only one timer/rAF per animated system. No duplicated animation loops.
+
+6. **README and onboarding**
+  - Make sure all instructions are clear for Python, Node, and static hosts.
+
+### Node.js HTTP Server (if Python is unavailable)
+
+Option 1: Using npx (no install needed)
+
+```sh
+npx serve .
+```
+
+Option 2: Install http-server globally
+
+```sh
+npm install -g http-server
+http-server -p 8000
+```
+
+Then open:
+
+```text
+http://localhost:8000/
+```
+
+---
+If assets or modules do not load, check the browser’s Network and Console tabs for errors. Most issues are due to missing files, case mismatches, or not serving over HTTP.
+
+---
 ## Runtime shape
 
 Initial hydration loads only the inert page shell, routes, and the main module.

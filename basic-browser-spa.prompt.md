@@ -1,4 +1,24 @@
+
 # basic-browser-spa — Full Architecture Reconstruction Prompt
+
+**This file is the canonical, living specification for the minimum viable runtime of `basic-browser-spa`. All code and PRs must conform to this spec.**
+
+---
+
+## Runtime++ Manifest
+
+This project enforces the following minimum runtime principles:
+
+- **A web application is input → state transition → render output.**
+- **No duplicated clocks, state, or render paths.**
+- **Explicit ownership and cleanup for all transient systems (GIFs, overlays, particles, etc).**
+- **No unnecessary handoffs or orchestration layers.**
+- **All motion grammars are palindromic or linear as appropriate.**
+- **README and CONTRIBUTING.md are the source of truth for philosophy and workflow.**
+
+See the README for the full Runtime++ philosophy and workflow rules.
+
+---
 
 Recreate the complete `basic-browser-spa` SPA from scratch.
 No bundler, no framework, no npm. Vanilla JS ES modules served as static files.

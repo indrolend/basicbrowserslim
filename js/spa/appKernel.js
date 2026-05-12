@@ -20,6 +20,7 @@
 import { SPA_SECTIONS, getSection, getItem, getHeroSpec, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
 import { getSafeExternalUrl } from './utils.js';
 import { ensureOverlayRuntime, ensureSectionRuntime, ensureGifRuntime } from './runtimeModules.js';
+import { runParticleAnimation } from './particleEngine.js';
 
 export function createAppKernel({
   transitionKernel,
@@ -59,7 +60,9 @@ export function createAppKernel({
 
   let _sectionNav          = document.getElementById('spa-section-nav');
   let _activeGifPlayer     = null;
+  let _activeParticleStop  = null;
   let _gifRestartSeq       = 0;
+<<<<<<< HEAD
 <<<<<<< HEAD
   let _prewarmedGif        = null;
   const GIF_REVEAL_LATCH_MS = 40;
@@ -82,6 +85,10 @@ export function createAppKernel({
 
   // ─── Navigation helpers ───────────────────────────────────────────────────
 =======
+=======
+  // Runtime++: Render generation for async callback discipline
+  let _renderGeneration    = 0;
+>>>>>>> 84dab24 (WIP: local changes before rebase)
 
   // ─── State helpers ────────────────────────────────────────────────────────
 
@@ -430,6 +437,7 @@ export function createAppKernel({
   }
 
   function _renderHeroDOM(si, ii) {
+<<<<<<< HEAD
     _clearGifResumeLatchTimer();
     // Cancel any running momentum decay before wiping the container.
     if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
@@ -437,11 +445,39 @@ export function createAppKernel({
   function _renderHeroDOM(si, ii) {
 >>>>>>> b57078b (Runtime reduction and continuity hardening)
     // Stop the gifler player we own before wiping the container
+=======
+    // Strict minimum: stop and remove everything, then render only the current hero
+>>>>>>> 84dab24 (WIP: local changes before rebase)
     if (_activeGifPlayer) {
       try { _activeGifPlayer.stop(); } catch (_) {}
       _activeGifPlayer = null;
     }
+    if (_activeParticleStop) {
+      try { _activeParticleStop(); } catch (_) {}
+      _activeParticleStop = null;
+    }
     heroContainer.innerHTML = '';
+  // Utility to start a particle animation and track its cleanup
+  function _startParticleAnimation(ctx, plan, onComplete) {
+    if (_activeParticleStop) {
+      try { _activeParticleStop(); } catch (_) {}
+      _activeParticleStop = null;
+    }
+    let stopped = false;
+    runParticleAnimation(ctx, plan, () => {
+      if (stopped) return;
+      stopped = true;
+      if (typeof onComplete === 'function') onComplete();
+      if (_activeParticleStop === stop) _activeParticleStop = null;
+    });
+    function stop() {
+      stopped = true;
+      // Particle engine will check isConnected and auto-complete
+      ctx.canvas.remove();
+    }
+    _activeParticleStop = stop;
+    return stop;
+  }
 
     const section = getSection(si);
     const item    = getItem(si, ii);
@@ -457,7 +493,14 @@ export function createAppKernel({
     const wrapper = document.createElement('div');
     wrapper.className = 'spa-hero';
     wrapper.setAttribute('draggable', 'false');
-    wrapper.addEventListener('dragstart', (e) => e.preventDefault());
+    // Prevent drag events from causing DOM wipes/removals
+    wrapper.addEventListener('dragstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    wrapper.addEventListener('pointerdown', (e) => {
+      if (e.button === 0) e.stopPropagation();
+    });
 
     if (clickAction) {
       wrapper.classList.add('spa-hero--linkable');
@@ -468,6 +511,7 @@ export function createAppKernel({
     }
 
     if (heroSpec.kind === 'image') {
+<<<<<<< HEAD
       if (_isGifSrc(heroSpec.src)) {
 <<<<<<< HEAD
         const capturedMomentum = _momentumFactor;
@@ -589,6 +633,16 @@ export function createAppKernel({
         img.setAttribute('draggable', 'false');
         wrapper.appendChild(img);
       }
+=======
+      const img = document.createElement('img');
+      img.className = 'spa-hero-image';
+      img.src       = heroSpec.src;
+      img.width     = 320;
+      img.height    = 320;
+      img.style.objectFit = 'contain';
+      img.setAttribute('draggable', 'false');
+      wrapper.appendChild(img);
+>>>>>>> 84dab24 (WIP: local changes before rebase)
     } else {
       wrapper.classList.add('spa-hero--text');
       const textEl = document.createElement('div');
@@ -598,6 +652,10 @@ export function createAppKernel({
     }
 
     heroContainer.appendChild(wrapper);
+    // Assert only one hero in container after render
+    if (heroContainer.childElementCount > 1) {
+      throw new Error('[Runtime++] Multiple heroes detected in heroContainer after render. DOM discipline violated.');
+    }
   }
 
   function _buildRenderInput(si, ii, phase) {
@@ -612,13 +670,26 @@ export function createAppKernel({
       // GIF hero rendered by gifler — canvas holds the current frame once ready
       const liveGifCanvas = heroContainer.querySelector('canvas.spa-hero-canvas');
       if (liveGifCanvas && liveGifCanvas._gifReady === true && liveGifCanvas.width > 0 && liveGifCanvas.height > 0) {
-        return { type: 'element', element: liveGifCanvas };
+        // Snapshot the current canvas to an offscreen canvas
+        const snap = document.createElement('canvas');
+        snap.width = liveGifCanvas.width;
+        snap.height = liveGifCanvas.height;
+        snap.getContext('2d').drawImage(liveGifCanvas, 0, 0);
+        return { type: 'element', element: snap };
       }
 
-      // Live hero element in DOM
+      // Live hero image (static or GIF)
       const liveImg = heroContainer.querySelector('.spa-hero-image');
-      if (liveImg) return { type: 'element', element: liveImg };
+      if (liveImg && liveImg.complete && liveImg.naturalWidth > 0 && liveImg.naturalHeight > 0) {
+        // Snapshot the current image to an offscreen canvas
+        const snap = document.createElement('canvas');
+        snap.width = liveImg.width;
+        snap.height = liveImg.height;
+        snap.getContext('2d').drawImage(liveImg, 0, 0, liveImg.width, liveImg.height);
+        return { type: 'element', element: snap };
+      }
 
+      // Live hero element in DOM (text)
       const liveHero = heroContainer.querySelector('.spa-hero');
       if (liveHero) return { type: 'textElement', element: liveHero };
 
