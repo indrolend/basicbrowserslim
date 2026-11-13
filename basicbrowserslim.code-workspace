@@ -1,5 +1,4 @@
 {
-<<<<<<< HEAD
     "folders": [
         {
             "path": "."
@@ -25,15 +24,4 @@
             "*.html": "html"
         }
     }
-=======
-	"folders": [
-		{
-			"path": "."
-		},
-		{
-			"path": "../dozzle-master"
-		}
-	],
-	"settings": {}
->>>>>>> 84dab24 (WIP: local changes before rebase)
 }

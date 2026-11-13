@@ -34,11 +34,8 @@ const kernel = createAppKernel({
 // ─── Window API ───────────────────────────────────────────────────────────────
 
 window.__SPA_Control = {
-<<<<<<< HEAD
-=======
   exitGameToCurrentItem:             () => kernel.dispatchInputIntent('exit-game'),
   enterCurrentGame:                  () => kernel.dispatchInputIntent('enter-game'),
->>>>>>> b57078b (Runtime reduction and continuity hardening)
   restoreCurrentItemHero:            () => kernel.dispatchInputIntent('restore-current-item-hero'),
   closeCurrentOverlayWithTransition: () => kernel.dispatchInputIntent('close-overlay'),
   cancelSlingshot:                   () => kernel.dispatchInputIntent('cancel-slingshot')
@@ -80,13 +77,10 @@ function dispatchActionElement(el) {
     kernel.dispatchInputIntent('hero-action', { clickAction });
     return;
   }
-<<<<<<< HEAD
-=======
 
   if (action === 'enter-game') {
     kernel.dispatchInputIntent('enter-game');
   }
->>>>>>> b57078b (Runtime reduction and continuity hardening)
 }
 
 document.addEventListener('click', (e) => {
@@ -106,22 +100,12 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-  if (e.key === 'Escape') {
-=======
   if (e.key === 'Escape') {
     kernel.dispatchInputIntent('exit-game');
->>>>>>> 08a5b95 (Fix keyboard navigation fallback out of game mode)
     kernel.dispatchInputIntent('close-overlay');
     return;
   }
 
-<<<<<<< HEAD
-=======
->>>>>>> b57078b (Runtime reduction and continuity hardening)
-=======
->>>>>>> 08a5b95 (Fix keyboard navigation fallback out of game mode)
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const active = document.activeElement;
   if (!active?.matches?.('[data-action]')) return;
@@ -129,11 +113,7 @@ window.addEventListener('keydown', (e) => {
   dispatchActionElement(active);
 });
 
-<<<<<<< HEAD
-// ─── Slingshot gesture ───────────────────────────────────────────────────────
-=======
 // ─── Slingshot gesture (inlined from slingshotGesture.js) ────────────────────
->>>>>>> b57078b (Runtime reduction and continuity hardening)
 
 const LOCK_THRESHOLD_PX = 15;  // minimum drag before direction is committed
 const MAX_PULL_DISTANCE  = 120; // px at which pullNormalized reaches 1.0

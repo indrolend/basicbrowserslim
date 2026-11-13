@@ -20,7 +20,6 @@
 import { SPA_SECTIONS, getSection, getItem, getHeroSpec, getClickAction, SLINGSHOT_MIN_RELEASE } from './spaData.js';
 import { getSafeExternalUrl } from './utils.js';
 import { ensureOverlayRuntime, ensureSectionRuntime, ensureGifRuntime } from './runtimeModules.js';
-import { runParticleAnimation } from './particleEngine.js';
 
 export function createAppKernel({
   transitionKernel,
@@ -36,16 +35,10 @@ export function createAppKernel({
   const state = {
     si: 0,
     ii: 0,
-<<<<<<< HEAD
-    slingshotPhase: 'REST', // 'REST' | 'TENSION' | 'RELEASE'
-    slingshotAmplitude: 0,  // [0,1] pull strength
-    homeSectionLocked: false,
-=======
     // 'idle' | 'transitioning' | 'pulling'
     phase: 'idle',
     homeSectionLocked: false,
     isGameActive: false,
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     queuedTarget: null
   };
 
@@ -60,35 +53,7 @@ export function createAppKernel({
 
   let _sectionNav          = document.getElementById('spa-section-nav');
   let _activeGifPlayer     = null;
-  let _activeParticleStop  = null;
   let _gifRestartSeq       = 0;
-<<<<<<< HEAD
-<<<<<<< HEAD
-  let _prewarmedGif        = null;
-  const GIF_REVEAL_LATCH_MS = 40;
-  let _gifResumeLatchTimer  = null;
-
-  // ─── GIF momentum state ───────────────────────────────────────────────────
-  // Unsigned pull-force magnitude [0..1], consumed once per slingshot release.
-  let _momentumFactor      = 0;
-  let _gifMomentumCancel   = null; // cancels an active frame-delay decay loop
-
-  // ─── State helpers ────────────────────────────────────────────────────────
-
-  function _isTransitioning() { return state.slingshotPhase === 'RELEASE'; }
-  function _isPulling()       { return state.slingshotPhase === 'TENSION'; }
-
-  function setSlingshotPhase(phase, amplitude = 0) {
-    state.slingshotPhase = phase;
-    state.slingshotAmplitude = amplitude;
-  }
-
-  // ─── Navigation helpers ───────────────────────────────────────────────────
-=======
-=======
-  // Runtime++: Render generation for async callback discipline
-  let _renderGeneration    = 0;
->>>>>>> 84dab24 (WIP: local changes before rebase)
 
   // ─── State helpers ────────────────────────────────────────────────────────
 
@@ -96,7 +61,6 @@ export function createAppKernel({
   function _isPulling()       { return state.phase === 'pulling'; }
 
   // ─── Navigation helpers (inlined from navModel.js) ────────────────────────
->>>>>>> b57078b (Runtime reduction and continuity hardening)
 
   function _getAvailableSections(homeSectionLocked) {
     return homeSectionLocked ? SPA_SECTIONS.filter((_, i) => i !== 0) : SPA_SECTIONS;
@@ -129,11 +93,7 @@ export function createAppKernel({
       : _getPrevTarget(si, ii, homeSectionLocked);
   }
 
-<<<<<<< HEAD
-  // ─── Render helpers ───────────────────────────────────────────────────────
-=======
   // ─── Render helpers (inlined from renderNav.js and renderHero.js) ────────
->>>>>>> b57078b (Runtime reduction and continuity hardening)
 
   function _getSectionNav() {
     if (!_sectionNav) {
@@ -201,283 +161,13 @@ export function createAppKernel({
     return `${base}${sep}spa_gif_restart=${Date.now()}_${_gifRestartSeq}${hash}`;
   }
 
-<<<<<<< HEAD
-  function _getGifDelayScale(f) {
-    const amount = Math.max(0, Math.min(1, Math.abs(f)));
-    const curved = Math.pow(amount, 0.75);
-    return Math.max(0.3, Math.pow(3, -curved));
-  }
-
-  function _ensureGifOrigDelays(animator) {
-    const frames = animator?._frames;
-    if (!frames?.length) return null;
-    if (!Array.isArray(animator._spaOrigDelays) || animator._spaOrigDelays.length !== frames.length) {
-      animator._spaOrigDelays = frames.map((f) => f.delay);
-    }
-    return animator._spaOrigDelays;
-  }
-
-
-  // --- Palindromic GIF cadence experiment ---
-  // Split momentumFactor into cadenceAmplitude (set on pull/release) and cadencePhase (tracks return)
-  let _cadenceAmplitude = 0; // [0,1] set by pull strength
-  let _cadencePhase = 0;     // [0,1] 1=just released, 0=baseline
-  let _cadenceDecayTimer = null;
-
-  function _applyGifCadenceCompression(animator, amplitude, phase) {
-    // amplitude: how strong the effect is (set on release)
-    // phase: how far along the return arc (1→0)
-    const frames = animator?._frames;
-    const origDelays = _ensureGifOrigDelays(animator);
-    if (!frames?.length || !origDelays) return;
-    // Compression is strongest at peak, decays to baseline
-    const mul = _getGifDelayScale(amplitude * phase);
-    for (let i = 0; i < frames.length; i++) {
-      frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
-    }
-  }
-
-
-  function _restoreGifCadence(animator) {
-    const frames = animator?._frames;
-    const origDelays = animator?._spaOrigDelays;
-    if (!frames?.length || !origDelays?.length) return;
-    for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
-    _cadenceAmplitude = 0;
-    _cadencePhase = 0;
-    if (_cadenceDecayTimer) {
-      cancelAnimationFrame(_cadenceDecayTimer);
-      _cadenceDecayTimer = null;
-    }
-  }
-
-  function _clearGifResumeLatchTimer() {
-    if (_gifResumeLatchTimer != null) {
-      cancelAnimationFrame(_gifResumeLatchTimer);
-      _gifResumeLatchTimer = null;
-    }
-  }
-
-  function _clearPrewarmedGif() {
-    if (!_prewarmedGif) return;
-    if (_activeGifPlayer !== _prewarmedGif.animator) {
-      try { _restoreGifCadence(_prewarmedGif.animator); } catch (_) {}
-      try { _prewarmedGif.animator?.stop?.(); } catch (_) {}
-    }
-    _prewarmedGif = null;
-  }
-
-  function _primeGifTargetForReveal(si, ii, momentumFactor) {
-    const heroSpec = getHeroSpec(si, ii);
-    if (heroSpec.kind !== 'image' || !_isGifSrc(heroSpec.src)) {
-      _clearPrewarmedGif();
-      return;
-    }
-
-
-    if (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii) {
-      if (momentumFactor > 0 && _prewarmedGif.animator) {
-        _cadenceAmplitude = momentumFactor;
-        _cadencePhase = 1;
-        _applyGifCadenceCompression(_prewarmedGif.animator, _cadenceAmplitude, _cadencePhase);
-        _startCadenceDecay(_prewarmedGif.animator);
-      }
-      return;
-    }
-
-
-    _clearPrewarmedGif();
-
-
-    const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
-    const img = document.createElement('img');
-    img.className = 'spa-hero-image';
-    img.src = gifRenderSrc;
-    img.width = 320;
-    img.height = 320;
-    img.style.objectFit = 'contain';
-    img.setAttribute('draggable', 'false');
-
-    const gifCanvas = document.createElement('canvas');
-    gifCanvas.className = 'spa-hero-canvas';
-    gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
-    gifCanvas._gifReady = false;
-
-    const token = { si, ii, gifRenderSrc, img, gifCanvas, animator: null, frozenAtToSurface: false, firstFrameReady: false };
-    _prewarmedGif = token;
-
-    // When the animator is ready, apply cadence if needed
-    // (This is a safe place to hook up the new variables)
-    // ...existing code...
-  }
-
-  function _startCadenceDecay(animator) {
-    if (_cadenceDecayTimer) cancelAnimationFrame(_cadenceDecayTimer);
-    function decayStep() {
-      if (_cadencePhase > 0) {
-        _cadencePhase -= 0.03; // Decay rate (tweak as needed)
-        if (_cadencePhase < 0) _cadencePhase = 0;
-        _applyGifCadenceCompression(animator, _cadenceAmplitude, _cadencePhase);
-        _cadenceDecayTimer = requestAnimationFrame(decayStep);
-      } else {
-        _restoreGifCadence(animator);
-      }
-    }
-    _cadenceDecayTimer = requestAnimationFrame(decayStep);
-  }
-
-    ensureGifRuntime().then(() => {
-      if (_prewarmedGif !== token || typeof window.gifler !== 'function') return;
-      window.gifler(gifRenderSrc).get(function(animator) {
-        if (_prewarmedGif !== token) {
-          try { animator.stop(); } catch (_) {}
-          return;
-        }
-        token.animator = animator;
-        let firstFrameDrawn = false;
-        animator.onDrawFrame = function(ctx, frame) {
-          if (!frame?.buffer) return;
-          ctx.drawImage(frame.buffer, frame.x, frame.y);
-          gifCanvas._gifReady = true;
-          if (!firstFrameDrawn) {
-            firstFrameDrawn = true;
-            token.firstFrameReady = true;
-            // Freeze at frame 0 immediately after first draw
-            setTimeout(() => { try { animator.stop(); } catch (_) {} }, 0);
-          }
-        };
-        animator.animateInCanvas(gifCanvas);
-        _ensureGifOrigDelays(animator);
-        // Do NOT apply momentum cadence during prewarm; only after reveal.
-      });
-    }).catch(() => {});
-  }
-
-  // ─── GIF frame-rate momentum ─────────────────────────────────────────────
-  //
-  // After a slingshot release onto a GIF hero, we:
-  //   1. Swap the visible element from <img> (native, uncontrollable) to the
-  //      gifCanvas (gifler-driven, delay-controllable).
-  //   2. Temporarily compress frame delays by Math.pow(2, -factor), where
-  //      factor is magnitude-only in [0, 1].
-  //   3. Run a rAF decay loop until |factor| < 0.02, then restore original
-  //      delays but keep rendering on the same canvas surface.
-  //
-  function _startGifMomentum(animator, gifCanvas, img, factor) {
-    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
-    const frames = animator._frames;
-    if (!frames || !frames.length) return;
-
-    // Clamp factor to [0, 1]: magnitude-only cadence compression.
-    // Direction does not affect timing sign in this patch.
-    const clampedFactor = Math.max(0, Math.min(1, Math.abs(factor)));
-
-    // Snapshot original frame delays (gifler stores delay in centiseconds).
-    const origDelays = _ensureGifOrigDelays(animator) || frames.map((f) => f.delay);
-
-    let current = clampedFactor;
-    let rafId;
-    let swapped = false;
-
-    function applyDelays(f) {
-      const mul = _getGifDelayScale(f);
-      for (let i = 0; i < frames.length; i++) {
-        frames[i].delay = Math.max(1, Math.round(origDelays[i] * mul));
-      }
-    }
-
-    // Swap display from native <img> (uncontrollable speed) to gifCanvas.
-    // Waits for gifCanvas._gifReady so the first drawn frame is already there.
-    // Uses .spa-hero-image class so sizing/border-radius matches the img exactly.
-    function swapIn() {
-      img.style.display = 'none';
-      gifCanvas.style.cssText = ''; // clear position:absolute;left:-9999px override
-      gifCanvas.classList.add('spa-hero-image');
-      swapped = true;
-    }
-
-    function swapOut() {
-      if (!swapped) return;
-      gifCanvas.classList.remove('spa-hero-image');
-      gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
-      if (img.isConnected) img.style.display = '';
-      swapped = false;
-    }
-
-    function restoreDelays() {
-      for (let i = 0; i < frames.length; i++) frames[i].delay = origDelays[i];
-    }
-
-    function tick() {
-      if (!animator._running || !gifCanvas.isConnected) {
-        restoreDelays(); swapOut(); _gifMomentumCancel = null; return;
-      }
-      // Wait for gifler to render at least one frame before swapping to canvas.
-      if (!swapped) {
-        if (gifCanvas._gifReady) swapIn();
-        rafId = requestAnimationFrame(tick);
-        return;
-      }
-      if (Math.abs(current) < 0.02) {
-        // End momentum without a canvas->img handoff. Keeping the same visual
-        // surface avoids endpoint duplication caused by unsynced playback sources.
-        restoreDelays();
-        _gifMomentumCancel = () => { restoreDelays(); swapOut(); _gifMomentumCancel = null; };
-        return;
-      }
-      current *= 0.93;
-      applyDelays(current);
-      rafId = requestAnimationFrame(tick);
-    }
-
-    // Apply initial delay scaling immediately so timing starts before swap.
-    applyDelays(current);
-    rafId = requestAnimationFrame(tick);
-    _gifMomentumCancel = () => { cancelAnimationFrame(rafId); restoreDelays(); swapOut(); _gifMomentumCancel = null; };
-  }
-
   function _renderHeroDOM(si, ii) {
-<<<<<<< HEAD
-    _clearGifResumeLatchTimer();
-    // Cancel any running momentum decay before wiping the container.
-    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
-=======
-  function _renderHeroDOM(si, ii) {
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     // Stop the gifler player we own before wiping the container
-=======
-    // Strict minimum: stop and remove everything, then render only the current hero
->>>>>>> 84dab24 (WIP: local changes before rebase)
     if (_activeGifPlayer) {
       try { _activeGifPlayer.stop(); } catch (_) {}
       _activeGifPlayer = null;
     }
-    if (_activeParticleStop) {
-      try { _activeParticleStop(); } catch (_) {}
-      _activeParticleStop = null;
-    }
     heroContainer.innerHTML = '';
-  // Utility to start a particle animation and track its cleanup
-  function _startParticleAnimation(ctx, plan, onComplete) {
-    if (_activeParticleStop) {
-      try { _activeParticleStop(); } catch (_) {}
-      _activeParticleStop = null;
-    }
-    let stopped = false;
-    runParticleAnimation(ctx, plan, () => {
-      if (stopped) return;
-      stopped = true;
-      if (typeof onComplete === 'function') onComplete();
-      if (_activeParticleStop === stop) _activeParticleStop = null;
-    });
-    function stop() {
-      stopped = true;
-      // Particle engine will check isConnected and auto-complete
-      ctx.canvas.remove();
-    }
-    _activeParticleStop = stop;
-    return stop;
-  }
 
     const section = getSection(si);
     const item    = getItem(si, ii);
@@ -493,14 +183,7 @@ export function createAppKernel({
     const wrapper = document.createElement('div');
     wrapper.className = 'spa-hero';
     wrapper.setAttribute('draggable', 'false');
-    // Prevent drag events from causing DOM wipes/removals
-    wrapper.addEventListener('dragstart', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    wrapper.addEventListener('pointerdown', (e) => {
-      if (e.button === 0) e.stopPropagation();
-    });
+    wrapper.addEventListener('dragstart', (e) => e.preventDefault());
 
     if (clickAction) {
       wrapper.classList.add('spa-hero--linkable');
@@ -511,86 +194,7 @@ export function createAppKernel({
     }
 
     if (heroSpec.kind === 'image') {
-<<<<<<< HEAD
       if (_isGifSrc(heroSpec.src)) {
-<<<<<<< HEAD
-        const capturedMomentum = _momentumFactor;
-        _momentumFactor = 0;
-
-        const prewarmed = (_prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii)
-          ? _prewarmedGif
-          : null;
-
-        if (prewarmed?.img && prewarmed.gifCanvas) {
-          const img = prewarmed.img;
-          const gifCanvas = prewarmed.gifCanvas;
-          wrapper.appendChild(img);
-          wrapper.appendChild(gifCanvas);
-          if (prewarmed.animator) {
-            _activeGifPlayer = prewarmed.animator;
-            if (gifCanvas._gifReady) {
-              // Reveal uses the same frozen prewarmed frame first, then resume
-              // sequencing after a short visual latch.
-              img.style.display = 'none';
-              gifCanvas.style.cssText = '';
-              gifCanvas.classList.add('spa-hero-image');
-            }
-
-            const resumeWithLatch = prewarmed.frozenAtToSurface && !prewarmed.animator._running;
-            if (resumeWithLatch) {
-              _gifResumeLatchTimer = requestAnimationFrame(() => {
-                _gifResumeLatchTimer = null;
-                if (!gifCanvas.isConnected) return;
-                try { prewarmed.animator.start(); } catch (_) {}
-                prewarmed.frozenAtToSurface = false;
-                if (capturedMomentum !== 0) {
-                  _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
-                }
-              });
-            } else if (capturedMomentum !== 0) {
-              _startGifMomentum(prewarmed.animator, gifCanvas, img, capturedMomentum);
-            }
-          }
-          _prewarmedGif = null;
-        } else {
-          const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
-          const img = document.createElement('img');
-          img.className = 'spa-hero-image';
-          img.src       = gifRenderSrc;
-          img.width     = 320;
-          img.height    = 320;
-          img.style.objectFit = 'contain';
-          img.setAttribute('draggable', 'false');
-          wrapper.appendChild(img);
-
-          const gifCanvas = document.createElement('canvas');
-          gifCanvas.className = 'spa-hero-canvas';
-          gifCanvas.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;';
-          gifCanvas._gifReady = false;
-          wrapper.appendChild(gifCanvas);
-          ensureGifRuntime().then(() => {
-            if (!gifCanvas.isConnected || typeof window.gifler !== 'function') return;
-            window.gifler(gifRenderSrc).get(function(animator) {
-              if (!gifCanvas.isConnected) {
-                try { animator.stop(); } catch (_) {}
-                return;
-              }
-              animator.onDrawFrame = function(ctx, frame) {
-                if (!frame?.buffer) return;
-                ctx.drawImage(frame.buffer, frame.x, frame.y);
-                gifCanvas._gifReady = true;
-              };
-              animator.animateInCanvas(gifCanvas);
-              _ensureGifOrigDelays(animator);
-              _activeGifPlayer = animator;
-              // Start frame-rate momentum decay if a slingshot released into this hero.
-              if (capturedMomentum !== 0) {
-                _startGifMomentum(animator, gifCanvas, img, capturedMomentum);
-              }
-            });
-          }).catch(() => {});
-        }
-=======
         const gifRenderSrc = _buildRestartGifSrc(heroSpec.src);
         const img = document.createElement('img');
         img.className = 'spa-hero-image';
@@ -622,7 +226,6 @@ export function createAppKernel({
             _activeGifPlayer = animator;
           });
         }).catch(() => {});
->>>>>>> b57078b (Runtime reduction and continuity hardening)
       } else {
         const img = document.createElement('img');
         img.className = 'spa-hero-image';
@@ -633,16 +236,6 @@ export function createAppKernel({
         img.setAttribute('draggable', 'false');
         wrapper.appendChild(img);
       }
-=======
-      const img = document.createElement('img');
-      img.className = 'spa-hero-image';
-      img.src       = heroSpec.src;
-      img.width     = 320;
-      img.height    = 320;
-      img.style.objectFit = 'contain';
-      img.setAttribute('draggable', 'false');
-      wrapper.appendChild(img);
->>>>>>> 84dab24 (WIP: local changes before rebase)
     } else {
       wrapper.classList.add('spa-hero--text');
       const textEl = document.createElement('div');
@@ -652,10 +245,6 @@ export function createAppKernel({
     }
 
     heroContainer.appendChild(wrapper);
-    // Assert only one hero in container after render
-    if (heroContainer.childElementCount > 1) {
-      throw new Error('[Runtime++] Multiple heroes detected in heroContainer after render. DOM discipline violated.');
-    }
   }
 
   function _buildRenderInput(si, ii, phase) {
@@ -670,26 +259,13 @@ export function createAppKernel({
       // GIF hero rendered by gifler — canvas holds the current frame once ready
       const liveGifCanvas = heroContainer.querySelector('canvas.spa-hero-canvas');
       if (liveGifCanvas && liveGifCanvas._gifReady === true && liveGifCanvas.width > 0 && liveGifCanvas.height > 0) {
-        // Snapshot the current canvas to an offscreen canvas
-        const snap = document.createElement('canvas');
-        snap.width = liveGifCanvas.width;
-        snap.height = liveGifCanvas.height;
-        snap.getContext('2d').drawImage(liveGifCanvas, 0, 0);
-        return { type: 'element', element: snap };
+        return { type: 'element', element: liveGifCanvas };
       }
 
-      // Live hero image (static or GIF)
+      // Live hero element in DOM
       const liveImg = heroContainer.querySelector('.spa-hero-image');
-      if (liveImg && liveImg.complete && liveImg.naturalWidth > 0 && liveImg.naturalHeight > 0) {
-        // Snapshot the current image to an offscreen canvas
-        const snap = document.createElement('canvas');
-        snap.width = liveImg.width;
-        snap.height = liveImg.height;
-        snap.getContext('2d').drawImage(liveImg, 0, 0, liveImg.width, liveImg.height);
-        return { type: 'element', element: snap };
-      }
+      if (liveImg) return { type: 'element', element: liveImg };
 
-      // Live hero element in DOM (text)
       const liveHero = heroContainer.querySelector('.spa-hero');
       if (liveHero) return { type: 'textElement', element: liveHero };
 
@@ -710,34 +286,7 @@ export function createAppKernel({
     }
 
     // phase === 'to'
-<<<<<<< HEAD
-    if (heroSpec.kind === 'image') {
-      // If the target GIF is already prewarmed and has a live frame, use that
-      // exact canvas as the transition "to" truth so particles reform toward
-      // the same moving surface that reveal will show.
-      if (_isGifSrc(heroSpec.src)) {
-        const prewarmedCanvas =
-          _prewarmedGif && _prewarmedGif.si === si && _prewarmedGif.ii === ii
-            ? _prewarmedGif.gifCanvas
-            : null;
-        if (
-          prewarmedCanvas &&
-          prewarmedCanvas._gifReady === true &&
-          prewarmedCanvas.width > 0 &&
-          prewarmedCanvas.height > 0
-        ) {
-          if (_prewarmedGif?.animator && !_prewarmedGif.frozenAtToSurface) {
-            try { _prewarmedGif.animator.stop(); } catch (_) {}
-            _prewarmedGif.frozenAtToSurface = true;
-          }
-          return { type: 'element', element: prewarmedCanvas };
-        }
-      }
-      return { type: 'gif', src: heroSpec.src };
-    }
-=======
     if (heroSpec.kind === 'image') return { type: 'gif', src: heroSpec.src };
->>>>>>> b57078b (Runtime reduction and continuity hardening)
 
     if (viewModule?.buildHeroProbe) {
       const probe = viewModule.buildHeroProbe(item.id, heroContainer);
@@ -956,8 +505,6 @@ export function createAppKernel({
     });
   }
 
-<<<<<<< HEAD
-=======
   // ─── Game mode lifecycle ──────────────────────────────────────────────────
 
   async function enterCurrentGameWithTransition() {
@@ -1022,16 +569,12 @@ export function createAppKernel({
     });
   }
 
->>>>>>> b57078b (Runtime reduction and continuity hardening)
   // ─── Slingshot callbacks ──────────────────────────────────────────────────
 
   function onTap() {
     if (window.__SPA_Overlay?.shouldSuppressTap?.()) return;
     if (window.__SPA_Overlay?.isOpen()) { void closeOverlayWithTransition(); return; }
-<<<<<<< HEAD
-=======
     if (state.isGameActive) { window.__SPA_GameNav?.onTap?.(); return; }
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     const action = getClickAction(state.si, state.ii);
     if (action) _handleHeroAction(action);
   }
@@ -1045,17 +588,6 @@ export function createAppKernel({
     if (_isPulling()) return false;
 
     let targetSi, targetIi;
-<<<<<<< HEAD
-    const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
-    if (!t) return false;
-    targetSi = t.sectionIdx; targetIi = t.itemIdx;
-
-    _pullTargetSi = targetSi;
-    _pullTargetIi = targetIi;
-    _momentumFactor = 0;
-    // Start target GIF sequencing as early as possible during pull.
-    _primeGifTargetForReveal(targetSi, targetIi, 0);
-=======
     if (state.isGameActive && window.__SPA_GameNav) {
       const t = window.__SPA_GameNav.getToTarget?.(direction);
       if (!t) return false;
@@ -1068,7 +600,6 @@ export function createAppKernel({
 
     _pullTargetSi = targetSi;
     _pullTargetIi = targetIi;
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     _setPhase('pulling');
     transitionKernel.resetPullPreview();
     _pullParticles = null;
@@ -1098,24 +629,6 @@ export function createAppKernel({
     } else {
       _pullParticles = null;
     }
-<<<<<<< HEAD
-    // Track pull force magnitude for GIF frame cadence compression on reveal.
-    // Direction is intentionally ignored; both directions accelerate first.
-    if (Math.abs(pullVector.x) > 0.1) {
-      _momentumFactor = Math.max(0, Math.min(1, pullNormalized));
-      // If target GIF prewarm is already alive, update cadence immediately so
-      // the pre-reveal motion reflects current pull force.
-      if (
-        _prewarmedGif &&
-        _prewarmedGif.si === _pullTargetSi &&
-        _prewarmedGif.ii === _pullTargetIi &&
-        _prewarmedGif.animator
-      ) {
-        _applyGifCadenceCompression(_prewarmedGif.animator, _momentumFactor);
-      }
-    }
-=======
->>>>>>> b57078b (Runtime reduction and continuity hardening)
   }
 
   async function onRelease({ pullNormalized }) {
@@ -1123,20 +636,9 @@ export function createAppKernel({
 
     const targetSi = _pullTargetSi, targetIi = _pullTargetIi;
 
-<<<<<<< HEAD
-    // Ensure GIF target prewarm starts before we sample transition surfaces.
-    _primeGifTargetForReveal(targetSi, targetIi, _momentumFactor);
-
-    const [fromSurf, toSurf] = await _buildSurfacePair(
-      () => _pullFromPromise || _buildSurface(state.si, state.ii, 'from'),
-      // Rebuild "to" at release-time so prewarmed GIF canvas can be sampled
-      // when ready; fallback remains the existing static GIF path.
-      () => _buildSurface(targetSi, targetIi, 'to')
-=======
     const [fromSurf, toSurf] = await _buildSurfacePair(
       () => _pullFromPromise || _buildSurface(state.si, state.ii, 'from'),
       () => _pullToPromise || _buildSurface(targetSi, targetIi, 'to')
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     );
 
     if (!fromSurf || !toSurf) { cancelSlingshot(); return; }
@@ -1152,10 +654,7 @@ export function createAppKernel({
           await onBeforeReveal();
         }
       }), () => _commitPositionAndView(targetSi, targetIi), () => _commitPositionAndView(targetSi, targetIi));
-<<<<<<< HEAD
-=======
       if (state.isGameActive && window.__SPA_GameNav) window.__SPA_GameNav.commitTo?.(state.si, state.ii);
->>>>>>> b57078b (Runtime reduction and continuity hardening)
       _activate(state.si, state.ii);
     } catch (_) {}
 
@@ -1163,23 +662,9 @@ export function createAppKernel({
     _drainQueue();
   }
 
-<<<<<<< HEAD
-  function onCancel() {
-    setSlingshotPhase('REST', 0);
-    cancelSlingshot();
-  }
-
-  function cancelSlingshot() {
-    setSlingshotPhase('REST', 0);
-    _momentumFactor = 0;
-    _clearGifResumeLatchTimer();
-    _clearPrewarmedGif();
-    if (_gifMomentumCancel) { _gifMomentumCancel(); _gifMomentumCancel = null; }
-=======
   function onCancel() { cancelSlingshot(); }
 
   function cancelSlingshot() {
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     transitionKernel.hideCanvas();
     const heroEl = heroContainer.firstElementChild;
     if (heroEl) { heroEl.style.visibility = 'visible'; heroEl.style.opacity = '1'; heroEl.style.transition = ''; }
@@ -1188,11 +673,7 @@ export function createAppKernel({
   }
 
   function _cleanupPull() {
-<<<<<<< HEAD
-    setSlingshotPhase('REST', 0);
-=======
     _setPhase('idle');
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     _pullTargetSi = null; _pullTargetIi = null;
     _pullFromSurface = null; _pullToSurface = null;
     _pullFromPromise = null; _pullToPromise = null;
@@ -1203,18 +684,11 @@ export function createAppKernel({
   // ─── Navigation ───────────────────────────────────────────────────────────
 
   function navigate(direction) {
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-    if (state.isGameActive && window.__SPA_GameNav) { void gameNavigate(direction); return; }
->>>>>>> b57078b (Runtime reduction and continuity hardening)
-=======
     if (state.isGameActive && window.__SPA_GameNav) {
       const to = window.__SPA_GameNav.getToTarget?.(direction);
       const isDifferentPosition = to && (to.sectionIdx !== state.si || to.itemIdx !== state.ii);
       if (isDifferentPosition) { void gameNavigate(direction); return; }
     }
->>>>>>> 08a5b95 (Fix keyboard navigation fallback out of game mode)
     const t = _getTargetForDirection(direction, state.si, state.ii, state.homeSectionLocked);
     if (t) void goTo(t.sectionIdx, t.itemIdx);
   }
@@ -1239,8 +713,6 @@ export function createAppKernel({
       return;
     }
 
-<<<<<<< HEAD
-=======
     if (intent === 'enter-game') {
       void enterCurrentGameWithTransition();
       return;
@@ -1251,7 +723,6 @@ export function createAppKernel({
       return;
     }
 
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     if (intent === 'close-overlay') {
       void closeOverlayWithTransition();
       return;
@@ -1314,13 +785,10 @@ export function createAppKernel({
     // Overlay
     openOverlayWithTransition,
     closeOverlayWithTransition,
-<<<<<<< HEAD
-=======
     // Game mode
     enterCurrentGameWithTransition,
     exitGameToCurrentItem,
     gameNavigate,
->>>>>>> b57078b (Runtime reduction and continuity hardening)
     // State accessors
     getSi() { return state.si; },
     getIi() { return state.ii; },
@@ -1334,7 +802,4 @@ export function createAppKernel({
       _commitView(state.si, state.ii, { nav: false });
     }
   };
-<<<<<<< HEAD
-=======
 }
->>>>>>> b57078b (Runtime reduction and continuity hardening)
