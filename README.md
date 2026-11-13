@@ -83,7 +83,6 @@ Optional runtime pieces are activated on demand:
 - Overlay code loads `js/spa/overlayManager.js` only when an overlay action is used.
 - Games code loads `js/spa/apps/asymptoteApp.js` and `js/spa/views/gamesView.js`
   only before entering or transitioning to the Games section.
-<<<<<<< HEAD
 Runtime++
 
 Notes for Minimum Runtime Web Applications
@@ -685,5 +684,3 @@ The goal is:
 * behavioral density
 * coherent motion
 * minimum viable runtime truth
-=======
->>>>>>> b57078b (Runtime reduction and continuity hardening)
